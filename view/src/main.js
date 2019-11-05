@@ -4,10 +4,12 @@ import ViewUI from 'view-design';
 import VueRouter from 'vue-router'
 import Routers from './config/routerConfig'
 import Vuex from 'vuex'
+import axios from 'axios'
 
 Vue.use(ViewUI);
 Vue.use(VueRouter);
 Vue.use(Vuex);
+Vue.use(axios);
 
 import 'view-design/dist/styles/iview.css';
 const RouterConfig = {
