@@ -1,9 +1,12 @@
 <template>
     <card class="card" shadow>
     <List item-layout="vertical" split="false">
-        <ListItem v-for="item in articleList" :key="item.title">
-            <ListItemMeta :avatar="item.avatar" :title="item.title" :description="item.description" />
-            {{ item.content }}
+        <div slot="header">这里是列表的 Header</div>
+        <ListItem v-for="item in articleList" :key="item.articleID">
+            <ListItemMeta :avatar="item.avatar"  :description="item.description">
+                <div slot="title"><router-link :to="{path:'/article',query:{id:item.articleID}}">{{ item.title }}</router-link></div>
+            </ListItemMeta>
+            {{ item.content }}'
             <template slot="action">
                 <li>
                     <Icon type="ios-star-outline" /> 123
@@ -15,41 +18,61 @@
                     <Icon type="ios-chatbubbles-outline" /> 345
                 </li>
             </template>
-            <template slot="extra">
+            <template v-if="item.showPic" slot="extra">
                 <img src="https://dev-file.iviewui.com/5wxHCQMUyrauMCGSVEYVxHR5JmvS7DpH/large" style="width: 280px">
             </template>
         </ListItem>
     </List>
         <Divider />
-        <Page :total="100" show-sizer show-elevator  />
+        <Page :total=recordTotal show-sizer show-elevator  />
     </card>
 </template>
 
 <script>
     export default {
         name: "bList",
-        data(){
+        data() {
             return {
-                articleList: [{
-                    title:'测试数据1',
-                    avatar: 'avatar',
-                    description: '描述信息',
-                    content: '测试内容'
-                },
+                articleList: [
                     {
-                        title:'测试数据2',
+                        articleID: '1',
+                        title: '测试数据1',
                         avatar: 'avatar',
                         description: '描述信息',
-                        content: '测试内容'
-                    }
-                    ,
+                        content: '测试内容',
+                        showPic: false
+                    },
                     {
-                        title:'测试数据3',
+                        articleID: '2',
+                        title: '测试数据2',
                         avatar: 'avatar',
                         description: '描述信息',
-                        content: '测试内容'
+                        content: '测试内容',
+                        showPic: true
+                    },
+                    {
+                        articleID: '3',
+                        title: '测试数据3',
+                        avatar: 'avatar',
+                        description: '描述信息',
+                        content: '测试内容',
+                        showPic: false
                     }
-                ]
+                ],
+                recordTotal: 20,
+                currentPage: 0
+            }
+        },
+        computed:{
+            /*
+            recordTotal:function(){
+                return this.articleList.size;
+            }
+            */
+        },
+        method:{
+            getListData:function(){
+                //
             }
         }
     }

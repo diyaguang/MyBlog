@@ -7,6 +7,13 @@ const routers = [
         component: (resolve)=>require(['../view/bList.vue'],resolve)
     },
     {
+        path:'/article',
+        meta:{
+            title:'文章内容'
+        },
+        component:(resolve)=>require(['../view/bContent.vue'],resolve)
+    },
+    {
         path: '/RobotTest',
         meta:{
             title: '测试自动回复机器人'
