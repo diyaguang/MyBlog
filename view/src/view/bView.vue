@@ -2,7 +2,7 @@
  <div>
      <Menu mode="horizontal" theme="dark" active-name="1">
          <div class="layout-search">
-             <Input search enter-button="Search" placeholder="请输入搜索内容"/>
+             <Input search enter-button="查询" placeholder="This is a place where you can find something..."/>
          </div>
          <div class="layout-nav">
              <MenuItem name="1">

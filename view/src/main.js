@@ -5,6 +5,10 @@ import VueRouter from 'vue-router'
 import Routers from './config/routerConfig'
 import Vuex from 'vuex'
 import axios from 'axios'
+import moment from 'moment'
+import 'moment/locale/zh-cn'
+
+moment.locale('zh-cn')
 
 Vue.use(ViewUI);
 Vue.use(VueRouter);
