@@ -42,20 +42,32 @@
     export default {
         name: "bContent",
         components: {BComments},
-        props:{
-            articleID:{
-                type: String,
-                required: false
-            }
-        },
         data(){
             return{
-                testDate: 39837249723947
+                articleID:'',
+                testDate: 39837249723947,
             }
         },
         filters:{
             date(val){
                 return moment(val).calendar();
+            }
+        },
+        watch:{
+            /*
+            '$route' (to,from){
+                //对路由变化作出响应
+            }
+            */
+        },
+        computed:{
+            articleObject: function () {
+                return this.getArticle(this.articleID);
+            }
+        },
+        method:{
+            getArticle: function(articleId){
+                return articleId;
             }
         }
     }

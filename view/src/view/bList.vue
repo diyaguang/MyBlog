@@ -4,7 +4,7 @@
         <div slot="header">这里是列表的 Header</div>
         <ListItem v-for="item in articleList" :key="item.articleID">
             <ListItemMeta :avatar="item.avatar"  :description="item.description">
-                <div slot="title"><router-link :to="{path:'/article',query:{id:item.articleID}}">{{ item.title }}</router-link></div>
+                <div slot="title"><router-link :to="{name:'article',params:{id:item.articleID}}">{{ item.title }}</router-link></div>
             </ListItemMeta>
             {{ item.content }}'
             <template slot="action">
