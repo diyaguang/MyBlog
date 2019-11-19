@@ -8,12 +8,14 @@ import axios from 'axios'
 import moment from 'moment'
 import 'moment/locale/zh-cn'
 
+
 moment.locale('zh-cn')
 
 Vue.use(ViewUI);
 Vue.use(VueRouter);
 Vue.use(Vuex);
 Vue.use(axios);
+
 
 import 'view-design/dist/styles/iview.css';
 const RouterConfig = {

@@ -1,7 +1,15 @@
 const routers = [
     {
-        name: 'Home',
+        name: 'home',
         path: '/',
+        meta: {
+            title: 'Blog首页'
+        },
+        component: (resolve)=>require(['../view/bHome.vue'],resolve)
+    },
+    {
+        name: 'list',
+        path: '/list/:type',
         meta: {
             title: '文章列表'
         },
@@ -28,7 +36,7 @@ const routers = [
         path: '*',
         redirect: '/RobotTest',
         meta: {
-            title: '文章列表'
+            title: '测试机器人'
         }
     }
 ];

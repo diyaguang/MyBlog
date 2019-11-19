@@ -12,5 +12,6 @@ npm install --save vuex
 安装 moment （时间显示控件）
 npm install moment --save
 
-
+安装 swiper （轮播图控件）
+npm install swiper
 

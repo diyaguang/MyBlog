@@ -1,7 +1,7 @@
 <template>
     <card class="card" shadow>
     <List item-layout="vertical" split="false">
-        <div slot="header">这里是列表的 Header</div>
+        <div slot="header">这里是列表的，想用来显示类别</div>
         <ListItem v-for="item in articleList" :key="item.articleID">
             <ListItemMeta :avatar="item.avatar"  :description="item.description">
                 <div slot="title"><router-link :to="{name:'article',params:{id:item.articleID}}">{{ item.title }}</router-link></div>
