@@ -1,7 +1,7 @@
 <template>
     <card class="card" shadow>
         <List item-layout="vertical">
-            <div slot="header">
+            <div slot="header" style="text-align: center">
                 <div class="swiper-container" ref="slider">
                     <div class="swiper-wrapper" >
                         <router-link class="swiper-slide" v-for="slide in slides" :key="slide.id" tag="div" :to="{name: 'article',params:{id:slide.id} }">
@@ -105,7 +105,7 @@
                 spaceBetween: 30,
                 centeredSlides: true,
                 autoplay: 2500,
-                autoplayDisableOnInteraction: false
+                autoplayDisableOnInteraction: true
             })
         }
     }
@@ -114,5 +114,9 @@
 <style scoped>
     .card {
         margin: 10px 10px;
+    }
+    .swiper-container {
+        width: 100%;
+        height: 200px;
     }
 </style>
