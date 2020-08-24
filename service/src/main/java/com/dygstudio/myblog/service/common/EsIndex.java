@@ -11,6 +11,9 @@ import org.elasticsearch.client.RestHighLevelClient;
 import org.elasticsearch.client.indices.CreateIndexRequest;
 import org.elasticsearch.client.indices.CreateIndexResponse;
 import org.elasticsearch.client.indices.GetIndexRequest;
+import org.elasticsearch.client.indices.GetIndexResponse;
+import org.elasticsearch.cluster.metadata.AliasMetaData;
+import org.elasticsearch.cluster.metadata.MappingMetaData;
 import org.elasticsearch.common.settings.Settings;
 import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.common.xcontent.XContentBuilder;
@@ -190,9 +193,11 @@ public class EsIndex {
         }
     }
     private void processCreateIndexResponse(CreateIndexResponse createIndexResponse){
+        //所有节点是否已确认请求
         boolean acknowledged = createIndexResponse.isAcknowledged();
+        //是否在超时前为索引中的每个分片启动了所需数量的分片副本
         boolean shardsAcknowledged = createIndexResponse.isShardsAcknowledged();
-        EsUtil.log.info("acknowledged is "+acknowledged+" ;shardsAcknowledged is "+shardsAcknowledged);
+        EsUtil.log.info("acknowledged is "+acknowledged+"; shardsAcknowledged is "+shardsAcknowledged);
     }
 
 
@@ -207,8 +212,30 @@ public class EsIndex {
         return request;
     }
 
-    public void executeGetIndexRequest(String index){
-
+    public void executeGetIndexRequest(String index,EsUtil esUtil){
+        esUtil.initHEs();
+        GetIndexRequest request = buildGetIndexRequest(index);
+        try {
+            GetIndexResponse getIndexResponse = esUtil.restHighLevelClient.indices().get(request,RequestOptions.DEFAULT);
+        }catch (Exception e){
+            e.printStackTrace();
+        }finally {
+            esUtil.closeHEs();
+        }
+    }
+    public void processGetIndexResponse(GetIndexResponse getIndexResponse,String index){
+        MappingMetaData indexMappings = getIndexResponse.getMappings().get(index);
+        if(indexMappings==null)
+            return;
+        Map<String,Object> indexTypeMappings = indexMappings.getSourceAsMap();
+        for(String str : indexTypeMappings.keySet()){
+            EsUtil.log.info("key is "+str);
+        }
+        List<AliasMetaData> indexAliases = getIndexResponse.getAliases().get(index);
+        if(indexAliases==null)
+            return;
+        EsUtil.log.info("indexAliases is "+indexAliases.size());
+        String numberOfShardsString = getIndexResponse.getSetting(index,"index.number_of_shards");
     }
 
 }
