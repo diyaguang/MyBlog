@@ -31,7 +31,7 @@ import java.util.concurrent.CountDownLatch;
  * @date: 2020/8/19 5:09 下午
  */
 public class EsUtil {
-    private static Log log = LogFactory.getLog(EsUtil.class);
+    public static Log log = LogFactory.getLog(EsUtil.class);
 
     /*
      * 高级客户端是基于初级客户端来实现的，主要目标是公开特定的 API方法，接收请求作为参数并返回响应结果
@@ -46,9 +46,9 @@ public class EsUtil {
      * 原理：高级客户端在内部创建执行请求的初级客户端，初级客户端会维护一个连接池，并启动一些线程，当高级客户端
      * 的接口调用完成时，应该关闭它，因为它将同步关闭内部初级客户端，以释放这些资源。
      */
-    private RestClient restClient;
-    private RestHighLevelClient restHighLevelClient;
-    private Sniffer sniffer;
+    public RestClient restClient;
+    public RestHighLevelClient restHighLevelClient;
+    public Sniffer sniffer;
 
     //设置全局单实例 RequestOption，创建好后尅在发出请求时使用
     private static final RequestOptions COMMON_OPTIONS;
