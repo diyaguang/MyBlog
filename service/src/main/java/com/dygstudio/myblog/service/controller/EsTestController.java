@@ -9,17 +9,17 @@ import javax.annotation.Resource;
 /**
  * 〈功能概述〉
  *
- * @className: EsTestController
+ * @className: esTestController
  * @package: com.dygstudio.myblog.service.controller
  * @author: diyaguang
- * @date: 2020/8/20 10:11
+ * @date: 2020/8/21 10:08 上午
  */
 @RestController
 @RequestMapping("/api/testes")
-public class EsTestController {
+public class esTestController {
 
-    @Resource
-    private EsUtil esUtil;
+
+    private EsUtil esUtil = new EsUtil();
 
     @RequestMapping("/init")
     public String initElasticSearch(){
@@ -29,11 +29,13 @@ public class EsTestController {
 
     @RequestMapping("/baseRequest")
     public String executeRequest(){
+        esUtil.initEs();
         String result = esUtil.executeRequest();
         return result;
     }
     @RequestMapping("/baseAsyncRequest")
     public String executeAsyncRequest(){
+        esUtil.initEs();
         String result = esUtil.executeRequestAsync();
         return result;
     }
