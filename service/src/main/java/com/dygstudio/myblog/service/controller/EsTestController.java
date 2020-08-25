@@ -2,7 +2,10 @@ package com.dygstudio.myblog.service.controller;
 
 import com.dygstudio.myblog.service.common.EsIndex;
 import com.dygstudio.myblog.service.common.EsUtil;
+import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
+import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.common.Strings;
+import org.elasticsearch.common.unit.TimeValue;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -18,7 +21,7 @@ import javax.annotation.Resource;
  */
 @RestController
 @RequestMapping("/api/es")
-public class esTestController {
+class esTestController {
 
 
     private EsUtil esUtil = new EsUtil();
@@ -60,4 +63,33 @@ public class esTestController {
         esIndex.executeCreateIndexRequest(indexName,esUtil);
         return "Execute CreateIndexRequest success!";
     }
+    @RequestMapping("/gi")
+    public String executeGetIndex(String indexName){
+        if(Strings.isNullOrEmpty(indexName)){
+            return "Parameters are wrong!";
+        }
+        EsIndex esIndex = new EsIndex();
+        esIndex.executeGetIndexRequest(indexName,esUtil);
+        return "Execute GetIndexRequest success!";
+    }
+    @RequestMapping("/di")
+    public String executeDeleteIndex(String indexName){
+        if(Strings.isNullOrEmpty(indexName)){
+            return "Parameters are wrong!";
+        }
+        EsIndex esIndex = new EsIndex();
+        esIndex.executeDeleteIndexRequest(indexName,esUtil);
+        return "Execute deleteIndexRequest success!";
+    }
+
+    @RequestMapping("/ei")
+    public String executeExistsIndexRequest(String indexName){
+        if(Strings.isNullOrEmpty(indexName)){
+            return "Parameters are wrong!";
+        }
+        EsIndex esIndex = new EsIndex();
+        esIndex.executeExistsIndexRequest(indexName,esUtil);
+        return "Execute existsIndexRequest success!";
+    }
+
 }

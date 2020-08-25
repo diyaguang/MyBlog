@@ -4,8 +4,10 @@ import org.elasticsearch.action.admin.indices.alias.Alias;
 import org.elasticsearch.action.admin.indices.analyze.AnalyzeRequest;
 import org.elasticsearch.action.admin.indices.analyze.AnalyzeResponse;
 import org.elasticsearch.action.admin.indices.analyze.DetailAnalyzeResponse;
+import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
 import org.elasticsearch.action.support.ActiveShardCount;
 import org.elasticsearch.action.support.IndicesOptions;
+import org.elasticsearch.action.support.master.AcknowledgedResponse;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.client.RestHighLevelClient;
 import org.elasticsearch.client.indices.CreateIndexRequest;
@@ -22,6 +24,7 @@ import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 
+import java.net.Authenticator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -34,6 +37,12 @@ import java.util.Map;
  * 索引还有倒排索引的意思，文档中的所有字段都会被素银，字段都有一个倒排索引，所有字段都可被索引
  */
 public class EsIndex {
+
+    /*
+     * IndicesOptions （索引操作选项）
+     * 其枚举类型主要定义通配符的作用范围，控制如何处理不可用的具体索引（关闭或丢失）
+     * 如何将通配符表达式扩展为实际索引（全部，关闭或打开索引），以及如何处理解析为无索引的通配符表达式。
+     */
 
     /*
      * 字段索引分析
@@ -217,6 +226,7 @@ public class EsIndex {
         GetIndexRequest request = buildGetIndexRequest(index);
         try {
             GetIndexResponse getIndexResponse = esUtil.restHighLevelClient.indices().get(request,RequestOptions.DEFAULT);
+            processGetIndexResponse(getIndexResponse,index);
         }catch (Exception e){
             e.printStackTrace();
         }finally {
@@ -224,18 +234,103 @@ public class EsIndex {
         }
     }
     public void processGetIndexResponse(GetIndexResponse getIndexResponse,String index){
+        //检索不同类型的映射到索引的映射元数据 MappingMetadata
         MappingMetaData indexMappings = getIndexResponse.getMappings().get(index);
         if(indexMappings==null)
             return;
+        //检索 文档类型和文档属性的映射
         Map<String,Object> indexTypeMappings = indexMappings.getSourceAsMap();
         for(String str : indexTypeMappings.keySet()){
             EsUtil.log.info("key is "+str);
         }
+        //获取索引的别名列表
         List<AliasMetaData> indexAliases = getIndexResponse.getAliases().get(index);
         if(indexAliases==null)
             return;
         EsUtil.log.info("indexAliases is "+indexAliases.size());
+        //获取为索引设置字符串 index.number_shards 的值，该设置是默认设置的一部分
+        //（includeDefault 为 true），如果未显示指定设置，则检索默认设置
         String numberOfShardsString = getIndexResponse.getSetting(index,"index.number_of_shards");
+        //检索索引的所有设置
+        Settings indexSettings = getIndexResponse.getSettings().get(index);
+        //设置对象提供了更多的灵活性，被用来提取作为整数的碎片的设置 index.number
+        Integer numberOfShards = indexSettings.getAsInt("index.number_of_shards",null);
+        //获取默认设置 index.refresh_interval（includeDefault 默认设置为 true ，如果 includeDefault 设置为 false，则 getIndexResponse.defaultSettings()将返回空映射 ）
+        TimeValue time  = getIndexResponse.getDefaultSettings().get(index).getAsTime("index.refresh_interval",null);
+        //输出获取到的索引信息
+        EsUtil.log.info("numberOfShardsString is "+numberOfShardsString+";indexSettings is "+indexSettings.toString()+";numberOfShards is "+numberOfShards.intValue()+";time is "+time.getMillis());
     }
 
+
+    /* 删除索引 */
+    public DeleteIndexRequest buildDeleteIndexRequest(String index){
+        DeleteIndexRequest request = new DeleteIndexRequest(index);
+
+        //配置可选参数
+        //等待所有节点删除索引的确认超时时间
+        request.timeout(TimeValue.timeValueMinutes(2));  //方式1
+        request.timeout("2m");   //方式2
+        //从节点连接到主节点的超时时间
+        request.masterNodeTimeout(TimeValue.timeValueMinutes(1));  //方式1
+        request.masterNodeTimeout("1m");  //方式2
+        //设置 IndicesOptions，控制解析不可用索引及展开通配符表达式
+        request.indicesOptions(IndicesOptions.lenientExpandOpen());
+        return request;
+    }
+    /*
+     * 功能描述: 删除索引
+     * 返回 AcknowledgedResponse 作为相应结果
+     * @Param: [index, esUtil]
+     * @Return: void
+     * @Author: diyaguang
+     * @Date: 2020/8/25 10:25
+     */
+    public void executeDeleteIndexRequest(String index,EsUtil esUtil){
+        esUtil.initHEs();
+        DeleteIndexRequest request = buildDeleteIndexRequest(index);
+        try {
+            AcknowledgedResponse deleteIndexResponse = esUtil.restHighLevelClient.indices().delete(request,RequestOptions.DEFAULT);
+            processAcknowledgedResponse(deleteIndexResponse);
+        }catch (Exception e){
+            e.printStackTrace();
+        }finally {
+            esUtil.closeHEs();
+        }
+    }
+    private void processAcknowledgedResponse(AcknowledgedResponse deleteIndexResponse){
+        //所有节点是否已确认请求
+        boolean acknowledged = deleteIndexResponse.isAcknowledged();
+        EsUtil.log.info("acknowledged is "+acknowledged);
+    }
+
+
+    /* 索引存在验证 */
+
+    public GetIndexRequest buildExistsIndexRequest(String index){
+        GetIndexRequest request = new GetIndexRequest(index);
+        //配置可选项
+        //从主节点返回本地信息或检索状态
+        request.local(false);
+        //回归到适合人类的格式
+        request.humanReadable(true);
+        //是否返回每个索引的所有默认设置
+        request.includeDefaults(false);
+        //控制如何解析不可用索引及如何展开通配符表达式
+        //通过实验，设置了下边这个配置后，本来没有的索引，exists 也会返回 true
+        //设置 IndicesOptions 去控制不能用的索引如何解决处理，用 lenientExpandOpen 进行通用的处理
+        //request.indicesOptions(IndicesOptions.lenientExpandOpen());
+        return request;
+    }
+    public void executeExistsIndexRequest(String index,EsUtil esUtil){
+        esUtil.initHEs();
+        GetIndexRequest request = buildExistsIndexRequest(index);
+        try {
+            boolean exists = esUtil.restHighLevelClient.indices().exists(request,RequestOptions.DEFAULT);
+            EsUtil.log.info("exists is "+exists);
+        }catch (Exception e){
+            e.printStackTrace();
+        }finally {
+            esUtil.closeHEs();
+        }
+    }
 }
