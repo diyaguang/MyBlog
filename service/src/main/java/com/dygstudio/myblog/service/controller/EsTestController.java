@@ -91,5 +91,113 @@ class esTestController {
         esIndex.executeExistsIndexRequest(indexName,esUtil);
         return "Execute existsIndexRequest success!";
     }
+    @RequestMapping("/oi")
+    public String executeOpenIndexRequest(String indexName){
+        if(Strings.isNullOrEmpty(indexName)){
+            return "Parameters are wrong!";
+        }
+        EsIndex esIndex = new EsIndex();
+        return esIndex.executeOpenIndexRequest(indexName,esUtil);
+    }
+    @RequestMapping("/cli")
+    public String executeCloseIndexRequest(String indexName){
+        if(Strings.isNullOrEmpty(indexName)){
+            return "Parameters are wrong!";
+        }
+        EsIndex esIndex = new EsIndex();
+        return esIndex.executeCloseIndexRequest(indexName,esUtil);
+    }
+    @RequestMapping("/ri")
+    public String executeResizeIndexRequest(String sourceIndexName,String targetIndexName){
+        if(Strings.isNullOrEmpty(sourceIndexName) || Strings.isNullOrEmpty(targetIndexName)){
+            return "Parameters are wrong!";
+        }
+        EsIndex esIndex = new EsIndex();
+        return esIndex.executeResizeRequest(sourceIndexName,targetIndexName,esUtil);
+    }
+    @RequestMapping("/si")
+    public String executeSplitIndexRequest(String sourceIndexName,String targetIndexName){
+        if(Strings.isNullOrEmpty(sourceIndexName) || Strings.isNullOrEmpty(targetIndexName)){
+            return "Parameters are wrong!";
+        }
+        EsIndex esIndex = new EsIndex();
+        return esIndex.executeSplitRequest(sourceIndexName,targetIndexName,esUtil);
+    }
+    @RequestMapping("/rri")
+    public String executeRefreshIndexRequest(String indexName){
+        if(Strings.isNullOrEmpty(indexName)){
+            return "Parameters are wrong!";
+        }
+        EsIndex esIndex = new EsIndex();
+        return esIndex.executeRefreshRequest(indexName,esUtil);
+    }
+    @RequestMapping("/fi")
+    public String executeFlushIndexRequest(String indexName){
+        if(Strings.isNullOrEmpty(indexName)){
+            return "Parameters are wrong!";
+        }
+        EsIndex esIndex = new EsIndex();
+        return esIndex.executeFlushRequest(indexName,esUtil);
+    }
+    @RequestMapping("/sfi")
+    public String executeSyncFlushIndexRequest(String indexName){
+        if(Strings.isNullOrEmpty(indexName)){
+            return "Parameters are wrong!";
+        }
+        EsIndex esIndex = new EsIndex();
+        return esIndex.executeSyncFlushRequest(indexName,esUtil);
+    }
+    @RequestMapping("/cic")
+    public String executeClearIndexCacheRequest(String indexName){
+        if(Strings.isNullOrEmpty(indexName)){
+            return "Parameters are wrong!";
+        }
+        EsIndex esIndex = new EsIndex();
+        return esIndex.executeSyncFlushRequest(indexName,esUtil);
+    }
+    @RequestMapping("/fmi")
+    public String executeForceMergeIndexRequest(String indexName){
+        if(Strings.isNullOrEmpty(indexName)){
+            return "Parameters are wrong!";
+        }
+        EsIndex esIndex = new EsIndex();
+        return esIndex.executeForceMergeIndexRequest(indexName,esUtil);
+    }
+    @RequestMapping("/rli")
+    public String executeRolloverIndexRequest(String indexName){
+        if(Strings.isNullOrEmpty(indexName)){
+            return "Parameters are wrong!";
+        }
+        EsIndex esIndex = new EsIndex();
+        return esIndex.executeRolloverIndexRequest(indexName,esUtil);
+    }
+    @RequestMapping("/ia")
+    public String executeIndicesAliasesRequest(String indexName,String indexAliasName){
+        if(Strings.isNullOrEmpty(indexName) || Strings.isNullOrEmpty(indexAliasName)){
+            return "Parameters are wrong!";
+        }
+        EsIndex esIndex = new EsIndex();
+        return esIndex.executeIndicesAliasesRequest(indexName,indexAliasName,esUtil);
+    }
+    @RequestMapping("/ga")
+    public String executeGetAliasesRequest(String indexAliasName){
+        if(Strings.isNullOrEmpty(indexAliasName)){
+            return "Parameters are wrong!";
+        }
+        EsIndex esIndex = new EsIndex();
+        return esIndex.executeGetAliasesRequest(indexAliasName,esUtil);
+    }
+
+    @RequestMapping("/gaa")
+    public String executeGetAliasesRequestForAliases(String indexAliasName){
+        if(Strings.isNullOrEmpty(indexAliasName)){
+            return "Parameters are wrong!";
+        }
+        EsIndex esIndex = new EsIndex();
+        return esIndex.executeGetAliasesRequestForAliases(indexAliasName,esUtil);
+    }
+
+
+
 
 }
