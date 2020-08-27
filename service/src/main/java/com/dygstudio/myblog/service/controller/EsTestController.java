@@ -1,5 +1,6 @@
 package com.dygstudio.myblog.service.controller;
 
+import com.dygstudio.myblog.service.common.EsDocument;
 import com.dygstudio.myblog.service.common.EsIndex;
 import com.dygstudio.myblog.service.common.EsUtil;
 import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
@@ -195,6 +196,54 @@ class esTestController {
         }
         EsIndex esIndex = new EsIndex();
         return esIndex.executeGetAliasesRequestForAliases(indexAliasName,esUtil);
+    }
+    @RequestMapping("/dir")
+    public String executeIndexRequest(String indexName,String document){
+        if(Strings.isNullOrEmpty(indexName) ||Strings.isNullOrEmpty(document)){
+            return "Parameters are wrong!";
+        }
+        EsDocument esDocument = new EsDocument();
+        return esDocument.executeIndexRequest(indexName,document,esUtil);
+    }
+    @RequestMapping("/dg")
+    public String executeGetRequest(String indexName,String document){
+        if(Strings.isNullOrEmpty(indexName) ||Strings.isNullOrEmpty(document)){
+            return "Parameters are wrong!";
+        }
+        EsDocument esDocument = new EsDocument();
+        return esDocument.executeGetRequest(indexName,document,esUtil);
+    }
+    @RequestMapping("/dcde")
+    public String executeCheckDocumentExistsRequest(String indexName,String document){
+        if(Strings.isNullOrEmpty(indexName) ||Strings.isNullOrEmpty(document)){
+            return "Parameters are wrong!";
+        }
+        EsDocument esDocument = new EsDocument();
+        return esDocument.executeCheckExistIndexDocumentRequest(indexName,document,esUtil);
+    }
+    @RequestMapping("/ddid")
+    public String executeDeleteIndexDocumentRequest(String indexName,String document){
+        if(Strings.isNullOrEmpty(indexName) ||Strings.isNullOrEmpty(document)){
+            return "Parameters are wrong!";
+        }
+        EsDocument esDocument = new EsDocument();
+        return esDocument.executeDeleteIndexDocumentsRequest(indexName,document,esUtil);
+    }
+    @RequestMapping("/duid")
+    public String executeUpdateIndexDocumentRequest(String indexName,String document){
+        if(Strings.isNullOrEmpty(indexName) ||Strings.isNullOrEmpty(document)){
+            return "Parameters are wrong!";
+        }
+        EsDocument esDocument = new EsDocument();
+        return esDocument.executeUpdateIndexDocumentRequest(indexName,document,esUtil);
+    }
+    @RequestMapping("/dtv")
+    public String executeTermVectorRequest(String indexName,String document,String field){
+        if(Strings.isNullOrEmpty(indexName) ||Strings.isNullOrEmpty(document)){
+            return "Parameters are wrong!";
+        }
+        EsDocument esDocument = new EsDocument();
+        return esDocument.executeTermVectorRequest(indexName,document,field,esUtil);
     }
 
 
