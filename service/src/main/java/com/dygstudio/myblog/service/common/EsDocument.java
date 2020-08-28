@@ -2,27 +2,37 @@ package com.dygstudio.myblog.service.common;
 
 import org.elasticsearch.action.DocWriteRequest;
 import org.elasticsearch.action.DocWriteResponse;
+import org.elasticsearch.action.bulk.*;
 import org.elasticsearch.action.delete.DeleteRequest;
 import org.elasticsearch.action.delete.DeleteResponse;
-import org.elasticsearch.action.get.GetRequest;
-import org.elasticsearch.action.get.GetResponse;
+import org.elasticsearch.action.get.*;
 import org.elasticsearch.action.index.IndexRequest;
 import org.elasticsearch.action.index.IndexResponse;
+import org.elasticsearch.action.support.ActiveShardCount;
+import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.action.support.WriteRequest;
 import org.elasticsearch.action.support.replication.ReplicationResponse;
 import org.elasticsearch.action.update.UpdateRequest;
 import org.elasticsearch.action.update.UpdateResponse;
 import org.elasticsearch.client.Request;
 import org.elasticsearch.client.RequestOptions;
+import org.elasticsearch.client.core.MultiTermVectorsRequest;
+import org.elasticsearch.client.core.MultiTermVectorsResponse;
 import org.elasticsearch.client.core.TermVectorsRequest;
 import org.elasticsearch.client.core.TermVectorsResponse;
 import org.elasticsearch.common.Strings;
+import org.elasticsearch.common.unit.ByteSizeUnit;
+import org.elasticsearch.common.unit.ByteSizeValue;
 import org.elasticsearch.common.unit.TimeValue;
 import org.elasticsearch.common.xcontent.XContentBuilder;
 import org.elasticsearch.common.xcontent.XContentFactory;
 import org.elasticsearch.common.xcontent.XContentType;
 import org.elasticsearch.index.VersionType;
+import org.elasticsearch.index.query.QueryBuilder;
+import org.elasticsearch.index.query.TermQueryBuilder;
+import org.elasticsearch.index.reindex.*;
 import org.elasticsearch.search.fetch.subphase.FetchSourceContext;
+import org.elasticsearch.search.sort.SortOrder;
 
 import java.util.*;
 
@@ -61,7 +71,38 @@ public class EsDocument {
     * optimize API 强制分片合并段以达到指定 max_num_segments 参数，这户减少段的数量，达到提高搜索性能的目的，不需要在动态的索引上使用 optimize API，典型场景是记录日志
     *
     * 文档在文件系统中的处理过程：
-    * 
+    * ES 的配置文件 elasticsearch.yml 文件中有个一个配置属性 path.data，该属性包含了 ES中存储的数据的文件夹的路径。如果没有配置，则默认有一个 data目录，默认的 path.data属性的值。
+    * ES是使用 Lucene来处理分片级别的索引和插叙你的，data目录中的文件由 ES 和 Lucene 写入。Lucene负责写和维护 Lucene索引文件，ES在 Lucene之上写与功能相关的元数据，如字段映射，索引设置和其他集群元数据等
+    * 在 ES配置的 data 目录中，有 nodes文件夹，用于存储本机的节点信息，按照主节点分片的数量，有编号不同的文件夹，通常默认有一个 0的文件夹
+    * 在 编号文件夹内，有 node.lock 文件用于确保一次只能从一个数据目录读取，写入一个ES香瓜你的信息，_state 文件夹用于存放当前节点的索引状态信息，indices文件夹用于存放当前节点的索引信息
+    * 在 _state 文件夹中，例如有 global-30.st 文件，global前缀表示是一个全局状态文件，.st 扩展名表示是一个包含元数据的状态文件。这是二进制文件，包含有关用户集群的全局元数据，30表示集群元数据的版本
+    * 在 indices文件夹中，每个索引有一个随机字符串名字，该文件夹下的索引数量与本机中的索引数量相同
+    * 打开一个 索引文件夹，其中包含两类文件夹 _state 和分片文件夹，其中分片文件夹用 数字 0,1,2 等方式标记序号。其中 _state 文件夹中包含了 indices/{index-name}/state/state-{version}.st 路径中的索引状态文件。分片文件夹中包含索引分片相关的数据
+    * 打开一个分片文件夹，包含分片相关的状态文件，其中包括版本控制及有关分片是主分片还是副本的信息，_state 文件夹中包含 本分片下的索引信息和 translog日志信息，translog是ES的事务日志，在每个分片 translog目录中的前缀 translog中存在
+    * 在 ES 中，事务日志用于确保安全的将数据索引到 ES，无需为每个文档执行低级 Lucene提交，当提交 Lucene索引时，会在 Lucene级别创建一个新的 segment，即执行 fsync()，会产生大量磁盘 I/O
+    * 为了能存储索引文档并使其可搜索，而不需要完整的 Lucene提交，ES将其添加到 Lucene IndexWriter，并将其附加到事务日志中。
+    *
+    * ES 文档分片存储
+    * 一个索引一般由多个分片构成，执行 添加，删除，修改 文档操作时，ES需要决定把这个文档存储在那个分片上，这个过程就称为数据路由。
+    * ES的路由算法：shard=hash(routing)%number_of_primary_shards
+    * 每次对文档进行增删改查的时候，都有一个 routing值，默认是该文档ID的值，随后对这个 routing值使用 Hash函数进行计算，算出的值再和主分片个数取余数，余数的范围永远是 （0~number_of_primary_shards-1 ）之间，文档知道应该存储在那个对应的分片上
+    * ES支持手动指定一个值，作为文档ID，手动指定对负载均衡及提升批量读取的性能有一定帮助
+    * ES的路由机制导致 索引在建立后不能修改，修改索引主分片数会直接导致路由规则出现严重问题，导致部分数据无法被检索。
+    *
+    * ES 的数据分区
+    * 搜索引擎一般有两种数据分区方式：1.基于文档的分区方式，2.基于词条的分区方式。ES使用的是基于文档的分区方式
+    * 基于文档的分区方式 指的是每个文档只存一个分区，每个分区持有整个文档集的一个子集，分区是指一个功能完整的倒排索引
+    * 优点：1.每个分区都可以独立的处理查询，2.可以方便添加以文档为单位的索引信息，3.搜索过程中网络开销非常小
+    * 基于词条的分区方式：每个分区拥有一部分词条，词条里面包含了与该词条相关的整个 index 的文档数据
+    *
+    * 乐观锁：
+    * ES使用乐观锁来解决数据一致性问题，只需要指定操作的版本即可。当版本号冲突时，ES会提示冲突并排除异常 VersionConflictEngineException，在 ES中，版本号的取值范围是 1到 2(63)-1
+    * 乐观锁思想中，认为数据一般不会引发冲突，在数据更新时，才会检测是否存在数据冲突。
+    * 乐观锁对应的是 悲观锁，在悲观锁的思想中，认为数据一般会引发冲突，在读数据时写数据操作往往也在进行，因此要在读数据前需要上锁，没有拿到锁的读者或进程只能等待锁的释放。
+    * 悲观锁在关系数据库中有大量的应用，行锁，表锁，读锁，写锁，都是悲观锁
+    * 在关系数据库中，如果使用 乐观锁，则需要在表中增加一列字段，称为 version，用于记录行数据的版本。每当对数据进行修改操作时，version都+1，修改过程中，会对比 version，相同的才可写入数据
+    * 在 Java中，乐观锁思想实现就是 CAS技术（Compare and Swap），多个线程尝试使用 CAS同时更新同一个变量时，只有一个线程能更新成功，其他的线程都会失败，失败的线程并不会被挂起，而是被告知失败，并可再次尝试。
+    * CAS操作包含三个操作数，V内存位置，A预期原值，B新值，如果内存位置的值与预期原值相同，则会自动将该位置值更新为新值，否则不做任何操作。
     *  */
 
     /* 文档索引
@@ -545,5 +586,444 @@ public class EsDocument {
             }
         }
         return resultText;
+    }
+
+    /* 批量请求*/
+    public BulkRequest buildBulkRequest(String indexName,String field){
+        BulkRequest request = new BulkRequest();
+        //添加同类型请求
+        request.add(new IndexRequest(indexName).id("1").source(XContentType.JSON,field,"xxxxxxx1"));
+        request.add(new IndexRequest(indexName).id("2").source(XContentType.JSON,field,"xxxxxxx1"));
+        request.add(new IndexRequest(indexName).id("3").source(XContentType.JSON,field,"xxxxxxx1"));
+        //添加异形请求
+        request.add(new DeleteRequest(indexName,"3"));
+        request.add(new UpdateRequest(indexName,"2").doc(XContentType.JSON,field,"xxxxxxxxxxx"));
+
+        //可选的参数配置
+        //设置路由值
+        //说明：这里如果文档在指定的路由下，如果在请求时候不设置路由，则获取不到文档
+        request.routing("routing");
+        //设置超时时间
+        request.timeout(TimeValue.timeValueSeconds(1));
+        request.timeout("1s");
+        //设置刷新策略
+        request.setRefreshPolicy(WriteRequest.RefreshPolicy.WAIT_UNTIL);
+        request.setRefreshPolicy("wait_for");
+        //设置在继续执行 索引、更新、删除 操作之前必须处于活动状态的分片副本数
+        request.waitForActiveShards(2);
+        request.waitForActiveShards(ActiveShardCount.ALL);
+        //用于所有子请求的全局 pipelineid，即全局管道标识
+        return request;
+    }
+    public String executeBulkRequest(String indexName,String fields,EsUtil esUtil){
+        esUtil.initHEs();
+        BulkRequest request = buildBulkRequest(indexName,fields);
+        try {
+            BulkResponse response = esUtil.restHighLevelClient.bulk(request,RequestOptions.DEFAULT);
+            processBulkResponse(response);
+            return "execute BulkRequest Successful";
+        }catch (Exception e){
+            e.printStackTrace();
+            return "execute BulkRequest  error: "+e.getMessage();
+        }finally {
+            esUtil.closeHEs();
+        }
+    }
+    private void processBulkResponse(BulkResponse responses){
+        if(responses==null){
+            EsUtil.log.info( "the bulkResponse is null");
+        }
+        for(BulkItemResponse bulkItemResponse : responses){
+            DocWriteResponse itemResponse = bulkItemResponse.getResponse();
+            switch (bulkItemResponse.getOpType()){
+                case INDEX:
+                    break;
+                case CREATE:
+                    IndexResponse indexResponse = (IndexResponse)itemResponse;
+                    String index = indexResponse.getIndex();
+                    String id = indexResponse.getId();
+                    long version = indexResponse.getVersion();
+                    EsUtil.log.info( "create id is "+id+", index is "+index+", version is "+version);
+                    break;
+                case UPDATE:
+                    UpdateResponse updateResponse = (UpdateResponse)itemResponse;
+                    EsUtil.log.info("the bulkResponse is updateResponse");
+                    break;
+                case DELETE:
+                    DeleteResponse deleteResponse = (DeleteResponse)itemResponse;
+                    EsUtil.log.info("the bulkResponse is deleteResponse");
+                    break;
+            }
+        }
+    }
+
+
+    /* 批量处理器
+    * ES 提供了 BulkProcessor 进行批量操作处理，提供了一个实用程序类，简化批量 Bulk API的使用，允许将索引、更新、删除文档的操作添加到处理器中透明的执行
+    * BulkProcess需要依赖如下组件：
+    * 1.RestHighLevelClient，用于执行 BulkRequest 和检索 BulkResponse
+    * 2.BulkProcessor.Listener，每次执行 BulkRequest 之前和之后，或者当 BulkRequest失败时，都会调用此监视器
+    *  */
+    public void buildBulkRequestWithBulkProcessor(String indexName,String field,EsUtil esUtil){
+        esUtil.initHEs();
+        BulkProcessor.Listener listener = new BulkProcessor.Listener() {
+            @Override
+            public void beforeBulk(long l, BulkRequest bulkRequest) {
+                //批量处理签的动作
+            }
+
+            @Override
+            public void afterBulk(long l, BulkRequest bulkRequest, BulkResponse bulkResponse) {
+                //批量处理后的动作
+            }
+
+            @Override
+            public void afterBulk(long l, BulkRequest bulkRequest, Throwable throwable) {
+                //批量处理后的动作
+            }
+        };
+        /* 创建批处理器，使用异步方式
+        * 还可以根据当前添加的操作数设置刷新批量请求的时间，根据当前添加的操作大小设置刷新批量请求的时间，设置允许执行的并发请求数，设置刷新间隔，以及设置后退策略等
+        *  */
+        BulkProcessor.Builder builder = BulkProcessor.builder((request,bulkListener)->esUtil.restHighLevelClient.bulkAsync(request,RequestOptions.DEFAULT,bulkListener),listener);
+        //可选的配置项
+
+        //根据当前添加的操作数，设置刷新批量请求的时间（默认值为1000，使用-1表示禁用）
+        builder.setBulkActions(500);
+        //根据当前添加的操作大小，设置刷新批量请求的时间（默认值为 5M，使用-1表示禁用）
+        builder.setBulkSize(new ByteSizeValue(1L, ByteSizeUnit.MB));
+        //设置允许执行的并发请求数（默认为1，使用0表示仅允许执行单个请求）
+        builder.setConcurrentRequests(0);
+        //设置刷新间隔（默认为未设置）
+        builder.setFlushInterval(TimeValue.timeValueSeconds(10L));
+        //设置一个恒定的后退策略，改策略最初等待 1s，最多重试3次
+        builder.setBackoffPolicy(BackoffPolicy.constantBackoff(TimeValue.timeValueSeconds(1L),3));
+
+        //BulkProcess类提供了一个简单的接口，可以根据请求数量或在指定的时间段后自动的刷新批量操作。
+        //在 创建完 BulkProcess 后，用户就可以向其添加请求了
+        BulkProcessor processor = builder.build();
+        IndexRequest one = new IndexRequest(indexName).id("6").source(XContentType.JSON,"title","xxxxxxxxxxxx1");
+        IndexRequest two = new IndexRequest(indexName).id("6").source(XContentType.JSON,"title","xxxxxxxxxxxx2");
+        processor.add(one);
+        processor.add(two);
+        //索引请求将由 BulkProcess 执行，负责每个批量请求调用 BulkProcessor.Listener，配置的监听器提供访问 BulkRequest，BulkResponse的方法。
+    }
+
+
+
+    /* MultiGet 批量处理实战
+    * ES 提供了批量获取 API，合并多个请求，减少每个请求单独处理所需的网路开销
+    * 需要创建 MultiGet 请求，初始化为空，需要添加 MultiGetRequest.Item 以配置要提取的内容，MultiGetRequest.Item 有两个必选参数，即索引名称和文档ID。
+    * */
+    public void buildMultiGetRequest(String indexName,String[] documentIds,EsUtil esUtil){
+        if(documentIds==null||documentIds.length<0){
+            return;
+        }
+        MultiGetRequest request = new MultiGetRequest();
+        for(String documentId:documentIds){
+            request.add(new MultiGetRequest.Item(indexName,documentId));
+        }
+        //可选的参数配置
+        //禁用源检索，默认情况下启用
+        request.add(new MultiGetRequest.Item(indexName,documentIds[0]).fetchSourceContext(FetchSourceContext.DO_NOT_FETCH_SOURCE));
+        //为特定字段配置源排除（或源包含）关系
+        String[] excludes = Strings.EMPTY_ARRAY;
+        String[] includes = {"title","content"};
+        FetchSourceContext fetchSourceContext = new FetchSourceContext(true,includes,excludes);
+        request.add(new MultiGetRequest.Item(indexName,documentIds[0]).fetchSourceContext(fetchSourceContext));
+        //配置路由
+        request.add(new MultiGetRequest.Item(indexName,documentIds[0]).routing("routing"));
+        //配置版本和版本类型
+        request.add(new MultiGetRequest.Item(indexName,documentIds[0]).versionType(VersionType.EXTERNAL).version(10123L));
+        //配置偏好
+        request.preference("title");
+        //将实时标志设置为假（默认为真）
+        request.realtime(false);
+        //在检索文档之前执行刷新(默认为 false)
+        request.refresh(true);
+        try {
+            esUtil.initHEs();
+            request.add(new MultiGetRequest.Item(indexName,documentIds[0]).storedFields("title"));
+            //简单的结果解析，可以循环处理
+            MultiGetResponse response = esUtil.restHighLevelClient.mget(request,RequestOptions.DEFAULT);
+            MultiGetItemResponse item = response.getResponses()[0];
+            String value = item.getResponse().getField("title").getValue();
+            String index = item.getIndex();
+            String id = item.getId();
+            GetResponse getResponse = item.getResponse();
+            if(getResponse.isExists()){
+                long version = getResponse.getVersion();
+                String sourceAsString = getResponse.getSourceAsString();
+                Map<String,Object> sourceAsMap = getResponse.getSourceAsMap();
+                byte[] sourceAsBytes = getResponse.getSourceAsBytes();
+            }
+        }catch (Exception e){
+            e.printStackTrace();
+        }finally {
+            esUtil.closeHEs();
+        }
+        return;
+    }
+
+
+
+    /* 文档 ReIndex 实战
+    * 文档重新索引，用于从一个或更多的索引中复制相关的文档到一个新的索引中进行索引重建。文档 ReIndex请求需要一个现有的源索引和一个可能存在或不存在的目标索引
+    * 文档 ReIndex 不尝试设置目标索引，不会复制源索引的设置，用户需要再运行文档 ReIndex操作之前设置目标索引，包括设置映射，分片计数，副本等。
+    *  */
+    public void buildReIndexReqeust(String fromIndex,String toIndex,EsUtil esUtil){
+        ReindexRequest request = new ReindexRequest();
+        //添加要从中复制的源的列表
+        request.setSourceIndices("source1","source2",fromIndex);
+        //添加目标索引
+        request.setDestIndex(toIndex);
+
+        /* 可选的配置
+        * versionType 的配置可以像索引API一样配置 dest元素来控制乐观并发控制，如果省略 versionType或将其设置为 Internal 会导致 ES忙目的将文档转存到目标中
+        * 如果将 versionType 设置为 external，ES会保留源文件中的版本，并更新目标索引中版本比源文件索引中版本旧的所有文档。
+        * 当 opType 设置为 cause_reindex时，会在目标索引中创建缺少的文档，所有现有文档都将导致版本冲突，默认个 opType是 index
+        *  */
+
+        //设置目标索引的版本类型
+        request.setDestVersionType(VersionType.EXTERNAL);
+        //设置目标索引的操作类型为创建类型
+        request.setDestOpType("create");
+        //在默认情况下，版本冲突会中止重新索引进程，我们可以用以下方法计算
+        request.setConflicts("proceed");
+        //通过添加查询限制文档，下面仅复制用户字段设置为 kimchy 的文档
+        request.setSourceQuery(new TermQueryBuilder("user","kimchy"));
+        //通过设置大小限制已处理文档的数量
+        request.setSize(10);
+        //默认情况下，ReIndex使用1000个批次，可以使用 sourceBatchSize 更改批大小
+        request.setSourceBatchSize(100);
+        //指定管道模式
+        request.setDestPipeline("my_pipeline");
+        //如果需要用到源索引中的一组特定文档，则需要使用是sort，建议最好选择更具选择性的查询，而不是进行大小和排序
+        request.addSortField("field1", SortOrder.DESC);
+        request.addSortField("field2", SortOrder.ASC);
+        //使用切片滚动对 uid 进行切片，使用 setslices 指定要使用的切片数
+        request.setSlices(2);
+        //使用 scroll 参数控制 search context 保持活动时间
+        request.setScroll(TimeValue.timeValueMinutes(10));
+        //设置超时时间
+        request.setTimeout(TimeValue.timeValueMinutes(2));
+        //调用 reIndex 后，刷新索引
+        request.setRefresh(true);
+
+        try {
+            BulkByScrollResponse bulkResponse = esUtil.restHighLevelClient.reindex(request,RequestOptions.DEFAULT);
+            if(bulkResponse==null)
+                return;
+            //获取总耗时
+            TimeValue timeTaken = bulkResponse.getTook();
+            EsUtil.log.info("time is "+timeTaken.getMillis());
+            //检查请求是否超时
+            boolean timeOut = bulkResponse.isTimedOut();
+            //获取已处理文档数
+            long totalDocs = bulkResponse.getTotal();
+            //获取已更新文档数
+            long updateDocs = bulkResponse.getUpdated();
+            //获取已创建文档数
+            long createdDocs = bulkResponse.getCreated();
+            //获取已删除文档数
+            long deletedDocs = bulkResponse.getDeleted();
+            //已执行的批次数
+            long batches = bulkResponse.getBatches();
+            //跳过的文档数
+            long noops = bulkResponse.getNoops();
+            //版本冲突数
+            long versionConflicts = bulkResponse.getVersionConflicts();
+            //重试批量索引操作的次数
+            long bulkRetries = bulkResponse.getBulkRetries();
+            //重试索引操作的次数
+            long searchRetries = bulkResponse.getSearchRetries();
+            //请求阻塞的总时间，不包括当前处于休眠状态的限制时间
+            TimeValue throttledMillis = bulkResponse.getStatus().getThrottled();
+            EsUtil.log.info("throttledMillis is "+throttledMillis.getMillis());
+            //查询失败数量
+            List<ScrollableHitSource.SearchFailure> searchFailures = bulkResponse.getSearchFailures();
+            //批量操作失败的数量
+            List<BulkItemResponse.Failure> bulkFailures = bulkResponse.getBulkFailures();
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+    }
+
+
+    /* 文档查询时更新实战
+    * 在文档查询时更新接口，以便更新索引中的文档，是在不更改源的情况下对索引中的每个文档进行更新，用可以在文档查询时更新接口来修改字段或新增字段
+    *  */
+    public void buildUpdateByQueryRequest(String indexName,EsUtil esUtil){
+        UpdateByQueryRequest request = new UpdateByQueryRequest(indexName);
+
+        //可选配置项
+        //在默认情况下，版本冲突会中止重新索引进程，我们可以用以下方法计算
+        request.setConflicts("proceed");
+        //通过添加查询限制文档，下面仅复制用户字段设置为 kimchy 的文档
+        request.setQuery(new TermQueryBuilder("user","diyaguang"));
+        //通过设置大小限制已处理文档的数量
+        request.setSize(10);
+        //默认情况下，ReIndex使用1000个批次，可以使用 sourceBatchSize 更改批大小
+        request.setBatchSize(100);
+        //指定管道模式
+        request.setPipeline("my_pipeline");
+
+        //设置分片滚动来并行化
+        request.setSlices(2);
+        //使用 scroll 参数控制 search context 保持活动时间
+        request.setScroll(TimeValue.timeValueMinutes(10));
+        //设置超时时间
+        request.setTimeout(TimeValue.timeValueMinutes(2));
+        //调用 reIndex 后，刷新索引
+        request.setRefresh(true);
+        //设置路由，如果提供路由，那么路由将被复制到滚动查询，从而限制于该路由值匹配的分片处理
+        request.setRouting("=cat");
+        //设置索引选项
+        request.setIndicesOptions(IndicesOptions.LENIENT_EXPAND_OPEN);
+
+        try {
+            BulkByScrollResponse bulkResponse = esUtil.restHighLevelClient.updateByQuery(request,RequestOptions.DEFAULT);
+            if(bulkResponse==null)
+                return;
+            //获取总耗时
+            TimeValue timeTaken = bulkResponse.getTook();
+            EsUtil.log.info("time is "+timeTaken.getMillis());
+            //检查请求是否超时
+            boolean timeOut = bulkResponse.isTimedOut();
+            //获取已处理文档数
+            long totalDocs = bulkResponse.getTotal();
+            //获取已更新文档数
+            long updateDocs = bulkResponse.getUpdated();
+            //获取已创建文档数
+            long createdDocs = bulkResponse.getCreated();
+            //获取已删除文档数
+            long deletedDocs = bulkResponse.getDeleted();
+            //已执行的批次数
+            long batches = bulkResponse.getBatches();
+            //跳过的文档数
+            long noops = bulkResponse.getNoops();
+            //版本冲突数
+            long versionConflicts = bulkResponse.getVersionConflicts();
+            //重试批量索引操作的次数
+            long bulkRetries = bulkResponse.getBulkRetries();
+            //重试索引操作的次数
+            long searchRetries = bulkResponse.getSearchRetries();
+            //请求阻塞的总时间，不包括当前处于休眠状态的限制时间
+            TimeValue throttledMillis = bulkResponse.getStatus().getThrottled();
+            EsUtil.log.info("throttledMillis is "+throttledMillis.getMillis());
+            //查询失败数量
+            List<ScrollableHitSource.SearchFailure> searchFailures = bulkResponse.getSearchFailures();
+            //批量操作失败的数量
+            List<BulkItemResponse.Failure> bulkFailures = bulkResponse.getBulkFailures();
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+    }
+
+
+    /* 文档查询时删除实战
+    * 在查询时删除的接口
+    *  */
+    public void buildDeleteByQueryRequest(String indexName,EsUtil esUtil){
+        DeleteByQueryRequest request = new DeleteByQueryRequest(indexName);
+
+        //可选配置项
+        //在默认情况下，版本冲突会中止重新索引进程，我们可以用以下方法计算
+        request.setConflicts("proceed");
+        //通过添加查询限制文档，下面仅复制用户字段设置为 kimchy 的文档
+        request.setQuery(new TermQueryBuilder("user","diyaguang"));
+        //通过设置大小限制已处理文档的数量
+        request.setSize(10);
+        //默认情况下，ReIndex使用1000个批次，可以使用 sourceBatchSize 更改批大小
+        request.setBatchSize(100);
+
+        //设置分片滚动来并行化
+        request.setSlices(2);
+        //使用 scroll 参数控制 search context 保持活动时间
+        request.setScroll(TimeValue.timeValueMinutes(10));
+        //设置超时时间
+        request.setTimeout(TimeValue.timeValueMinutes(2));
+        //调用 reIndex 后，刷新索引
+        request.setRefresh(true);
+        //设置路由，如果提供路由，那么路由将被复制到滚动查询，从而限制于该路由值匹配的分片处理
+        request.setRouting("=cat");
+        //设置索引选项
+        request.setIndicesOptions(IndicesOptions.LENIENT_EXPAND_OPEN);
+
+        try {
+            BulkByScrollResponse bulkResponse = esUtil.restHighLevelClient.deleteByQuery(request,RequestOptions.DEFAULT);
+            if(bulkResponse==null)
+                return;
+            //获取总耗时
+            TimeValue timeTaken = bulkResponse.getTook();
+            EsUtil.log.info("time is "+timeTaken.getMillis());
+            //检查请求是否超时
+            boolean timeOut = bulkResponse.isTimedOut();
+            //获取已处理文档数
+            long totalDocs = bulkResponse.getTotal();
+            //获取已更新文档数
+            long updateDocs = bulkResponse.getUpdated();
+            //获取已创建文档数
+            long createdDocs = bulkResponse.getCreated();
+            //获取已删除文档数
+            long deletedDocs = bulkResponse.getDeleted();
+            //已执行的批次数
+            long batches = bulkResponse.getBatches();
+            //跳过的文档数
+            long noops = bulkResponse.getNoops();
+            //版本冲突数
+            long versionConflicts = bulkResponse.getVersionConflicts();
+            //重试批量索引操作的次数
+            long bulkRetries = bulkResponse.getBulkRetries();
+            //重试索引操作的次数
+            long searchRetries = bulkResponse.getSearchRetries();
+            //请求阻塞的总时间，不包括当前处于休眠状态的限制时间
+            TimeValue throttledMillis = bulkResponse.getStatus().getThrottled();
+            EsUtil.log.info("throttledMillis is "+throttledMillis.getMillis());
+            //查询失败数量
+            List<ScrollableHitSource.SearchFailure> searchFailures = bulkResponse.getSearchFailures();
+            //批量操作失败的数量
+            List<BulkItemResponse.Failure> bulkFailures = bulkResponse.getBulkFailures();
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+    }
+
+
+    /* 获取文档索引的多词向量
+    * 词向量接口也有批量实现的方式，多词向量接口，允许用户一次获取多个词向量信息
+    * 构建多词向量请求，MultitemVectorsRequest，有两种构建方式：
+    * 1.创建一个空的 MultiTermVectorsRequest，然后向其添加单个 Term Vectors 请求
+    * 2.所有词向量请求共享相同参数时，可以使用所有必要的设置创建模板TermVectorsRequest，并且可以将此模板请求连同执行这些请求的所有文档ID，传递给 MultiTermVectorsRequest 对象
+    *  */
+    public void buildMultiTermVectorsRequest(String indexName,String[] documentIds,String field,EsUtil esUtil){
+        //方法1：创建一个空的 MultiTermVectorsRequest，向其添加单个 Term Vectors请求
+        MultiTermVectorsRequest request = new MultiTermVectorsRequest();
+        for(String documenId : documentIds){
+            TermVectorsRequest tvrequest = new TermVectorsRequest(indexName,documenId);
+            tvrequest.setFields(field);
+            request.add(tvrequest);
+        }
+        //方法2：所有词向量请求共享相同参数（如索引和其他设置）
+        TermVectorsRequest tvRequestTemplate = new TermVectorsRequest(indexName,"1");
+        tvRequestTemplate.setFields(field);
+        String[] ids = {"1","2"};
+        request = new MultiTermVectorsRequest(ids,tvRequestTemplate);
+
+        try {
+            MultiTermVectorsResponse response = esUtil.restHighLevelClient.mtermvectors(request,RequestOptions.DEFAULT);
+            if(response == null)
+                return;
+            List<TermVectorsResponse> tvResponseList = response.getTermVectorsResponses();
+            if(tvResponseList == null)
+                return;
+            for(TermVectorsResponse tvResponse : tvResponseList){
+                String id = tvResponse.getId();
+                String index = tvResponse.getIndex();
+                //等等其他数据设置
+            }
+        }catch (Exception e){
+            e.printStackTrace();
+        }
     }
 }

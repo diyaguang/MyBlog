@@ -246,6 +246,14 @@ class esTestController {
         return esDocument.executeTermVectorRequest(indexName,document,field,esUtil);
     }
 
+    @RequestMapping("/db")
+    public String executeBulkReqeust(String indexName,String field){
+        if(Strings.isNullOrEmpty(indexName) ||Strings.isNullOrEmpty(field)){
+            return "Parameters are wrong!";
+        }
+        EsDocument esDocument = new EsDocument();
+        return esDocument.executeBulkRequest(indexName,field,esUtil);
+    }
 
 
 
