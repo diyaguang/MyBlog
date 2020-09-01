@@ -268,6 +268,28 @@ class esTestController {
         EsSearch esSearch = new EsSearch();
         return esSearch.executeSearchRequest(field,value,esUtil);
     }
-
-
+    @RequestMapping("/ss")
+    public String executeScrollSearchRequest(String indexName,String size){
+        if(Strings.isNullOrEmpty(indexName) ||Strings.isNullOrEmpty(size)){
+            return "Parameters are wrong!";
+        }
+        EsSearch esSearch = new EsSearch();
+        return esSearch.executeScrollSearchRequest(indexName,size,esUtil);
+    }
+    @RequestMapping("/ass")
+    public String executeAllScrollSearchRequest(String indexName,String size){
+        if(Strings.isNullOrEmpty(indexName) ||Strings.isNullOrEmpty(size)){
+            return "Parameters are wrong!";
+        }
+        EsSearch esSearch = new EsSearch();
+        return esSearch.executeAllScrollSearchRequest(indexName,size,esUtil);
+    }
+    @RequestMapping("/css")
+    public String executeClearScrollSearchRequest(String scrollId){
+        if(Strings.isNullOrEmpty(scrollId) ){
+            return "Parameters are wrong!";
+        }
+        EsSearch esSearch = new EsSearch();
+        return esSearch.executeClearScrollRequest(scrollId,esUtil);
+    }
 }

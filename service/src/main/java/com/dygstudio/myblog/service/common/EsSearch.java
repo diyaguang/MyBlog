@@ -2,9 +2,10 @@ package com.dygstudio.myblog.service.common;
 
 import com.fasterxml.jackson.datatype.jsr310.deser.InstantDeserializer;
 import org.apache.lucene.search.TotalHits;
-import org.elasticsearch.action.search.SearchRequest;
-import org.elasticsearch.action.search.SearchResponse;
-import org.elasticsearch.action.search.ShardSearchFailure;
+import org.elasticsearch.action.fieldcaps.FieldCapabilities;
+import org.elasticsearch.action.fieldcaps.FieldCapabilitiesIndexResponse;
+import org.elasticsearch.action.fieldcaps.FieldCapabilitiesResponse;
+import org.elasticsearch.action.search.*;
 import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.client.RequestOptions;
 import org.elasticsearch.common.text.Text;
@@ -32,8 +33,7 @@ import org.elasticsearch.search.suggest.SuggestBuilders;
 import org.elasticsearch.search.suggest.SuggestionBuilder;
 import org.elasticsearch.search.suggest.term.TermSuggestion;
 
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 
 /* 搜索实战
@@ -115,9 +115,9 @@ public class EsSearch {
         * 默认情况下，搜索请求一般会返回文档源的内容，用户可以覆盖此行为，可以完全关闭源检索，在 SearchSourceBuilder 配置源搜索开关
         * fetch（获取）
         *  */
-        searchSourceBuilder.fetchSource(false);
+        //searchSourceBuilder.fetchSource(false);  //经过测试，设置了这个值后，将获取不到数据
         //还可以设置要获取的 类 和不需要获取的列
-        searchSourceBuilder.fetchSource(new String[]{"title","message"},new String[]{});
+        //searchSourceBuilder.fetchSource(new String[]{"title","message"},new String[]{});   //经过测试，设置了这个配置后，只显示 title，message 两个字段内容了
         //该方法还接收一个或多个通配符模式的数组，以便更细度方式控制那些字段被包括或被排除
         //String[] includeFields = new String[]{"title","innerObject"};
         //String[] excludeFields = new String[]{"user"};
@@ -125,17 +125,19 @@ public class EsSearch {
 
         /* 请求高亮显示
         * 在 SearchSourceBuilder 上设置 HighlightBuilder，添加一个或多个 HighlightBuilder.Field 实例，可以为每个字段定义不同的高亮显示行为
+        * 经过测试：在 Source中会包含 "highlight":{"message":["这个是测试数据 用来测试 Message的。"]} 这种数据
         * */
-        //HighlightBuilder highlightBuilder = new HighlightBuilder();
+        HighlightBuilder highlightBuilder = new HighlightBuilder();
         //为 title 字段创建高亮字段
-        //HighlightBuilder.Field highlightTitle = new HighlightBuilder.Field("title");
+        HighlightBuilder.Field highlightTitle = new HighlightBuilder.Field("message");
         //设置字段高亮类型
-        //highlightBuilder.highlighterType("unified");
-        //highlightBuilder.field(highlightTitle);
+        highlightBuilder.highlighterType("unified");
+        highlightBuilder.field(highlightTitle);
         //添加第二个高亮显示字段
         //HighlightBuilder.Field highlightUser = new HighlightBuilder.Field("user");
         //highlightBuilder.field(highlightUser);
-        //searchSourceBuilder.highlighter(highlightBuilder);
+        //添加高亮配置
+        searchSourceBuilder.highlighter(highlightBuilder);
 
         /* 请求聚合
         * 可以设置请求聚合结果，需要先创建聚合构建器 AggregationBuilder，然后将其添加到 SearchSourceBuilder 中
@@ -148,11 +150,12 @@ public class EsSearch {
         * 设置请求结果，给出 自动提示（自动感知）
         * 在 ES中，要想在搜索请求中添加请求，需要使用 SuggestBuilder 工厂类，是SuggestionBuilder 类的实现类之一
         * SuggestionBuilder工厂类 需要添加到 顶级 SuggestBuilder 中，并将顶级 SuggestBuilder 添加到 SearchSourceBuilder中
+        * 经过测试，删除文档中会增加 "suggest":{"suggest_message":[{"text":"测","offset":0,"length":1,"options":[]},{"text":"试","offset":1,"length":1,"options":[]}]} 输出
         *  */
-        //SuggestionBuilder termSuggestionBuilder = SuggestBuilders.termSuggestion("content").text("货币");
-        //SuggestBuilder suggestBuilder = new SuggestBuilder();
-        //suggestBuilder.addSuggestion("suggest_user",termSuggestionBuilder);
-        //searchSourceBuilder.suggest(suggestBuilder);
+        SuggestionBuilder termSuggestionBuilder = SuggestBuilders.termSuggestion("message").text("测试");
+        SuggestBuilder suggestBuilder = new SuggestBuilder();
+        suggestBuilder.addSuggestion("suggest_message",termSuggestionBuilder);
+        searchSourceBuilder.suggest(suggestBuilder);
 
         /* 分析聚合查询
         * 从 ES 2.2 开始，提供 ProfileAPI，供用户 检索、聚合、过滤 执行时间和其他细节信息，帮助分析每次检索各个环节所用的时间
@@ -234,11 +237,11 @@ public class EsSearch {
             resultText+="; sourceAsString is "+sourceAsString+"; sourceAsMap size is "+sourceAsMap.size();
 
             //搜索结果高亮显示
-            //Map<String, HighlightField> highlightFields = hit.getHighlightFields();
-            //HighlightField highlight = highlightFields.get("content");
-            //Text[] fragments = highlight.fragments();
-            //String fragmentString = fragments[0].string();
-            //resultText+="; fragmentString is "+fragmentString;
+            Map<String, HighlightField> highlightFields = hit.getHighlightFields();
+            HighlightField highlight = highlightFields.get("message");
+            Text[] fragments = highlight.fragments();
+            String fragmentString = fragments[0].string();
+            resultText+="; fragmentString is "+fragmentString;
         }
 
         //搜索聚合结果
@@ -255,15 +258,15 @@ public class EsSearch {
 
         //解析 Suggestions 结果
         //首先在 response 实例中使用 Suggest 对象作为入口点，然后检索嵌套的 Suggest对象
-        //Suggest suggest = response.getSuggest();
+        Suggest suggest = response.getSuggest();
         //按 content 搜索 Suggest
-        //TermSuggestion termSuggestion = suggest.getSuggestion("content");
-  /*      for(TermSuggestion.Entry entry : termSuggestion.getEntries()){
+        TermSuggestion termSuggestion = suggest.getSuggestion("suggest_message");
+        for(TermSuggestion.Entry entry : termSuggestion.getEntries()){
             for (TermSuggestion.Entry.Option option : entry){
                 String suggestText = option.getText().string();
                 resultText+="; suggestText is "+suggestText;
             }
-        }*/
+        }
 
         return resultText;
     }
@@ -272,6 +275,176 @@ public class EsSearch {
 
     /* 滚动搜索
     * 可通过搜索请求，获取大量的搜索结果，类似于数据库中的分页查询
-    * 使用滚动搜索，对于大请求时，类似数据库中的游标，缓存数据集位置，用于后续的分页使用，ES会缓存查询结果一段时间，可设定用于非实时响应，用于处理大量数据，只反映 Search那一刻的数据
+    * 使用滚动搜索，对于大请求时，类似数据库中的游标，缓存数据集位置，用于后续的分页使用，
+    * ES会缓存查询结果一段时间，可设定用于非实时响应，用于处理大量数据，只反映 Search那一刻的数据
+    * 构建滚动索引 API，ES会检测到滚动搜索参数的存在，并在相应的时间间隔内保持搜索上下文活动
     *  */
+    private SearchRequest buildExecuteScrollSearchRequest(String indexName,int size){
+        //设置索引
+        //创建 SearchRequest 及详细的 SearchSourceBuilder，还可设置返回多少结果
+        SearchRequest request = new SearchRequest(indexName);
+        SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
+        searchSourceBuilder.query(QueryBuilders.matchQuery("title","is"));
+
+        searchSourceBuilder.size(size);
+        request.source(searchSourceBuilder);
+        request.scroll(TimeValue.timeValueMinutes(1L));   //设置滚动间隔
+        return request;
+    }
+    public String executeScrollSearchRequest(String indexName,String size,EsUtil esUtil){
+        esUtil.initHEs();
+        SearchRequest request = buildExecuteScrollSearchRequest(indexName,Integer.parseInt(size));
+        try {
+            SearchResponse response = esUtil.restHighLevelClient.search(request,RequestOptions.DEFAULT);
+            //返回的滚动 ID，该ID指向保持活动状态的搜索上下文，并在后续的搜索滚动中需要使用
+            //测试后返回 ScrollID：DnF1ZXJ5VGhlbkZldGNoAwAAAAAAAAEiFnNtcjRjRjJsVHV1eDRoWWw4ZWlaQUEAAAAAAAABIxZzbXI0Y0YybFR1dXg0aFlsOGVpWkFBAAAAAAAAAKEWTDBRRnNGb0lTY2VCMDQ0WHJ0aUJxQQ==
+            String scrollId = response.getScrollId();
+            //第一次滚动获取的结果
+            SearchHits hits = response.getHits();
+            return "ScrollId is: "+scrollId+"; hits is: "+hits.toString()+"; source is: "+response.toString();
+        }catch (Exception e){
+            e.printStackTrace();
+            return "execute scroll search request is error :"+e.getMessage();
+        }finally {
+            esUtil.closeHEs();
+        }
+    }
+    /* 滚动检索所有文档
+    * 在 SearchScrollRequest 中设置上下文提及的滚动标识符和新的滚动间隔
+    * 其次在设置好 SearchScrollRequest 后，将其传送给 searchScroll 方法
+    * 请求发出后，ES服务器会返回另一批带有新额关东标识符的结果，依次类推，用户需要在新的 SearchScrollRequest中设置前文提及的滚动标识符和新的滚动间隔，以便获取下一次的结果
+    * 这个过程重复执行，直到不再返回任何结果，意味着搜索完毕，所有匹配的文档都被检索了。
+    * */
+
+    public String executeAllScrollSearchRequest(String indexName,String size,EsUtil esUtil){
+        String resultText = "";
+        esUtil.initHEs();
+        SearchRequest request = buildExecuteScrollSearchRequest(indexName,Integer.parseInt(size));
+        try {
+            SearchResponse searchResponse = esUtil.restHighLevelClient.search(request,RequestOptions.DEFAULT);
+            String scrollId = searchResponse.getScrollId();
+            SearchHits hits = searchResponse.getHits();
+            resultText+=" scrollId is "+scrollId;
+            resultText+="total hits is "+hits.getTotalHits().value+"; now hits is "+hits.getHits().length;
+
+            while (hits != null && hits.getHits().length != 0){
+                SearchScrollRequest scrollRequest = new SearchScrollRequest(scrollId);
+                //设置滚动搜索的过期时间，如果没有设置滚动标识符，则一但初始滚动时间过期，则滚动搜索的上下文也会过期
+                scrollRequest.scroll(TimeValue.timeValueSeconds(30));
+                SearchResponse searchScrollResponse = esUtil.restHighLevelClient.scroll(scrollRequest,RequestOptions.DEFAULT);
+                scrollId = searchScrollResponse.getScrollId();
+                hits = searchScrollResponse.getHits();
+                resultText+=" scrollId is "+scrollId;
+                resultText+="total hits is "+hits.getTotalHits().value+"; now hits is "+hits.getHits().length;
+            }
+            return resultText;
+        }catch (Exception e){
+            e.printStackTrace();
+            return "execute all scroll search request is error :"+e.getMessage();
+        }finally {
+            esUtil.closeHEs();
+        }
+    }
+
+    /* 清除滚动搜索的上下文
+    * 使用 Clear Scroll API 删除最后一个滚动标识，以释放滚动搜索的上下文，当滚动搜索超时时间到期时，这个过程也会自动发生
+    * 一般在滚动搜索会话后，需要立即执行清除滚动搜索的上下文
+    * 使用时，需要构建清除滚动搜索的请求，ClearScrollRequest，需要把滚动标识符作为参数输入
+    *  */
+    private ClearScrollRequest buildClearScrollRequest(String scrollId){
+
+        ClearScrollRequest request = new ClearScrollRequest();
+        //添加单个滚动标识符
+        request.addScrollId(scrollId);
+        //还可以添加多个滚动标识符
+        //List<String> scrollIds = new ArrayList<>();
+        //scrollIds.add(scrollId);
+        //request.setScrollIds(scrollIds);
+
+        return request;
+    }
+    public String executeClearScrollRequest(String scrollId,EsUtil esUtil){
+        esUtil.initHEs();
+        ClearScrollRequest request = buildClearScrollRequest(scrollId);
+        try {
+            ClearScrollResponse response = esUtil.restHighLevelClient.clearScroll(request,RequestOptions.DEFAULT);
+            //如果请求成功，则会返回 true
+            boolean success = response.isSucceeded();
+            //返回已释放的搜索上下文数
+            int released = response.getNumFreed();
+            return "success is "+success+"; released is "+released;
+        }catch (Exception e){
+            e.printStackTrace();
+            return "execute clear scroll search request is error :"+e.getMessage();
+        }finally {
+            esUtil.closeHEs();
+        }
+    }
+
+
+    /* 批量搜索
+    * 批量搜索 API ，MultiSearch API，构建 MultiSearchRequest 对象，初始化时，搜索请求为空，需要把要执行的所有所有添加到 MultiSearchRequest中
+    * 使用  request.add( xxxxxx ) 的方法来添加 SearchRequest请求，SearchRequest请求的创建方式同之前
+    *
+    * 解析 MultiSearchResponse 响应结果
+    * response结果中包含 MultiSearchResponse.item 对象列表，每个对象对应每个搜索请求结果的响应
+    * 使用 MultiSearchResponse.item 对象的 getFailure 方法中都会包含一个异常信息；反之如果请求执行成功，
+    * 每个 MultiSearchResponse.item 对象的 getResponse 方法中获得 SearchResponse 并解析对应的结果信息
+    *
+    * Item[] items = response.getResponse();
+    * for(Item item:items){
+    *   Exception exception = item.getFailure();
+    *   if(exception!=null) .....
+    *   SearchResponse searchResponse = item.getResponse();
+    *   SearchHits hits = searchResponse.getHits();
+    *   if(hits.getTotalHits().value() <= 0){
+    *       return;
+    *   }
+    *   SearchHit[] hitArray = hits.getHits();
+    *   return "id is "+hitArray[0].getId()+"; index is "+hitArray[0].getIndex()+"; source is "+hitArray[0].getSourceAsString();
+    * }
+    * */
+
+
+
+    /* 跨索引字段搜索
+    * 跨索引的字段搜索接口 Field  Capabilities  API，需要先创建 FieldCapabilitiesRequest 请求，包含了要搜索的字段列表以及一个可选的目标索引名称列表
+    * 如果没有提供目标索引名称列表，默认对所有索引执行相关的请求，字段列表支持通配符的表示方式，如 text_* 将返回与表达式匹配的所有字段
+    * FieldCapabilitiesRequest request = new FieldCapabilitiesRequest().fields("content").indices("index1","index2");
+    * 有个可选的配置 request.indicesOptions(IndicesOptions.lenientExpandOpen());
+    *
+    * 执行请求：
+    * FieldCapabilitiesResponse 中包含了每个索引中数据能否被搜索和聚合的信息，还包含了被搜索字段在对应索引中的贡献值
+    * FieldCapabilitiesResponse response = restClient.fieldCaps(reqeust,RequestOptions.DEFAULT);
+    *
+    * 解析 FieldCapabilitiesResponse 响应
+    *  */
+    public void processFieldCapabilitiesResponse(FieldCapabilitiesResponse response,String field,String[] indices){
+        //获取字段中可能含有的类型的映射
+        Map<String, FieldCapabilities> fieldResponse = response.getField(field);
+        Set<String> set = fieldResponse.keySet();
+        //获取文本字段类型下的数据
+        FieldCapabilities textCapabilities = fieldResponse.get("text");
+        //数据能否被搜索到
+        boolean isSearchable = textCapabilities.isSearchable();
+        // is Aggregatable is isSearchable
+        //数据能否聚合
+        boolean isAggregatable = textCapabilities.isAggregatable();
+        // is Aggregatable is isAggregatable
+        //获取特定字段类型下的索引
+        String[] indicesArray = textCapabilities.indices();
+        if(indicesArray!=null){
+            // "indicesArray is "+indicesArray.length
+        }
+        //field字段不能被搜索到的索引集合
+        String[] nonSearchableIndices = textCapabilities.nonSearchableIndices();
+        if(nonSearchableIndices!=null){
+            // "nonSearchableIndices is "+nonSearchableIndices.length
+        }
+        //field字段不能被聚合到的索引集合
+        String[] nonAggregatableIndices = textCapabilities.nonAggregatableIndices();
+        if(nonAggregatableIndices!=null){
+            // "nonAggregatableIndices is "+nonAggregatableIndices.length
+        }
+    }
 }
