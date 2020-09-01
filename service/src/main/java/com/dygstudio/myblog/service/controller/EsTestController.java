@@ -2,6 +2,7 @@ package com.dygstudio.myblog.service.controller;
 
 import com.dygstudio.myblog.service.common.EsDocument;
 import com.dygstudio.myblog.service.common.EsIndex;
+import com.dygstudio.myblog.service.common.EsSearch;
 import com.dygstudio.myblog.service.common.EsUtil;
 import org.elasticsearch.action.admin.indices.delete.DeleteIndexRequest;
 import org.elasticsearch.action.support.IndicesOptions;
@@ -24,7 +25,11 @@ import javax.annotation.Resource;
 @RequestMapping("/api/es")
 class esTestController {
 
-
+    /* 常用操作
+    * 删除索引：http://localhost:8080/api/es/di?indexName=read_me
+    * 创建索引：http://localhost:8080/api/es/ci?indexName=diyaguang
+    * 索引文档数据：http://localhost:8080/api/es/dir?indexName=diyaguang&document=doc1
+    *  */
     private EsUtil esUtil = new EsUtil();
 
     @RequestMapping("/init")
@@ -255,6 +260,14 @@ class esTestController {
         return esDocument.executeBulkRequest(indexName,field,esUtil);
     }
 
+    @RequestMapping("/sr")
+    public String executeSearchRequest(String field,String value){
+        if(Strings.isNullOrEmpty(field) ||Strings.isNullOrEmpty(value)){
+            return "Parameters are wrong!";
+        }
+        EsSearch esSearch = new EsSearch();
+        return esSearch.executeSearchRequest(field,value,esUtil);
+    }
 
 
 }

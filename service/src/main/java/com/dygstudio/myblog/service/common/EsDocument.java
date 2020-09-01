@@ -126,7 +126,7 @@ public class EsDocument {
         //文档 ID
         request.id(document);
         //String 类型文档
-        String jsonString = "{\"user\":\"diyaguang\",\"postDate\":\"2019-07-30\",\"message\":\"Firefox 无法建立到 localhost:8080 服务器的连接。此站点暂时无法使用或者太过忙碌。\"}";
+        String jsonString = "{\"user\":\"diyaguang\",\"age\":\"37\",\"title\":\"The title is xxxxx\",\"content\":\"这是用来测试的Content\",\"postDate\":\"2019-07-30\",\"message\":\"这个是测试数据 用来测试 Message的。\"}";
         request.source(jsonString, XContentType.JSON);
 
         //设置路由值
