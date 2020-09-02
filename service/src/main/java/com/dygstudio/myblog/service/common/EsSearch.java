@@ -1,18 +1,26 @@
 package com.dygstudio.myblog.service.common;
 
 import com.fasterxml.jackson.datatype.jsr310.deser.InstantDeserializer;
+import org.apache.lucene.search.Explanation;
 import org.apache.lucene.search.TotalHits;
+import org.elasticsearch.action.explain.ExplainRequest;
+import org.elasticsearch.action.explain.ExplainResponse;
 import org.elasticsearch.action.fieldcaps.FieldCapabilities;
 import org.elasticsearch.action.fieldcaps.FieldCapabilitiesIndexResponse;
 import org.elasticsearch.action.fieldcaps.FieldCapabilitiesResponse;
 import org.elasticsearch.action.search.*;
 import org.elasticsearch.action.support.IndicesOptions;
 import org.elasticsearch.client.RequestOptions;
+import org.elasticsearch.client.core.CountRequest;
+import org.elasticsearch.client.core.CountResponse;
+import org.elasticsearch.common.document.DocumentField;
 import org.elasticsearch.common.text.Text;
 import org.elasticsearch.common.unit.Fuzziness;
 import org.elasticsearch.common.unit.TimeValue;
+import org.elasticsearch.index.get.GetResult;
 import org.elasticsearch.index.query.MatchQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
+import org.elasticsearch.index.rankeval.*;
 import org.elasticsearch.rest.RestStatus;
 import org.elasticsearch.search.SearchHit;
 import org.elasticsearch.search.SearchHits;
@@ -22,6 +30,7 @@ import org.elasticsearch.search.aggregations.bucket.terms.Terms;
 import org.elasticsearch.search.aggregations.bucket.terms.TermsAggregationBuilder;
 import org.elasticsearch.search.aggregations.metrics.Avg;
 import org.elasticsearch.search.builder.SearchSourceBuilder;
+import org.elasticsearch.search.fetch.subphase.FetchSourceContext;
 import org.elasticsearch.search.fetch.subphase.highlight.HighlightBuilder;
 import org.elasticsearch.search.fetch.subphase.highlight.HighlightField;
 import org.elasticsearch.search.sort.FieldSortBuilder;
@@ -40,6 +49,37 @@ import java.util.concurrent.TimeUnit;
 * 允许用户执行搜索查询并返回匹配查询的搜索命中结果，可以跨一个或多个索引，以及跨一个或多个类型来执行
 *  */
 public class EsSearch {
+
+    /* 搜索过程解析
+    * 对已知文档的搜索：
+    * 如果被搜索的文档能够从主分片或任意一个副本分片中被检索到，则与索引文档过程相同，对已知文档的搜索也会用到路由算法
+    * shard = hash[routing] % number_of_primary_shards
+    * 客户端发送文档的 Get请求，主节点使用路由算法算出文档所在的主分片，随后协同节点将请求转发个主分片所在的节点，也可以基于轮询算法转发给副分片
+    * 请求节点一般会为每个请求选择不同的分片，一般采用轮询算法循环在所有副本分片中进行请求
+    *
+    * 对未知文档的搜索：
+    * 大部分请求实际上是不知道查询条件会命中那些文档，搜索请求的执行不得不去询问每个索引中的每个分片
+    * ES搜索过程 分为 查询阶段(Query Phase)，获取阶段(Fetch  Phase)
+    * 在查询阶段，查询请求会广播到索引中的每个主分片和备份中，每个分片都会在本地执行检索，并在本地建立一个优先级队列（Priority Queue），该优先级队列是一份根据文档相关度质变进行排序的列表，长度由 from 和 size 两个分页参数决定
+    * 查询阶段可以分为三个小的子阶段
+    * 1.客户端你发送一个检索请求个某节点A，A会创建一个空的优先级队列，并跑【行知道分页参数 from 和size
+    * 2.节点A 将搜索请求发送给该索引中的每一个分片，每个肥牛片在本地执行检索，并将结果添加到本地优先级队列中
+    * 3.每个分片返回本地优先级序列中所记录的ID 与 sort 值，并发送给节点A，节点A将这些值合并到自己的本地优先级队列中，并作出全局的排序
+    * 在获取阶段，主要是基于上一阶段找到所有搜索文档数据的具体文职，将文档数据内容取回并返回给客户端
+    * ES中 默认的搜索类型就是 Query then Fetch，有可能会出现打分偏离的情形，ES 还提供了一个 DFS Query then Fetch 的搜索方式，和 Query then Fetch 基本你想通，会执行一个预查询来计算你整体文档的 frequency
+    * 其过程：
+    * 1.预查询每个分片，询问 Term 和 Document Frequency 等信息
+    * 2.发送查询请求到每个分片
+    * 3.找到各个分片中所有匹配的文档，并使用全局的 Trem/Document Frequency信息进行打分，在执行过程中依然要对结果构建一个优先队列
+    * 4.返回结果的元数据到请求节点，此时世纪文档还没有发送到请求节点，发送的只是分数
+    * 5.请求节点将所有分片的分数合并起来，并在请求节点上进行排序，文档被按照查询要求进行选择，最终，实际文档从他们各自所在的独立的分片上被检索出来，结果被返回给读者
+    *
+    * 对词条的搜索
+    * ES 分别为每个文档中的字段建立了一个倒排索引，ES为了能快速找到某个词条，对所有的词条机型了排序，随后使用二分法查找词条，排序词条的集合也称为 Term Dictionary
+    * 为了能提高查询性能，ES直接通过内存查找词条，非从磁盘中读取，但当词条太多时，放在内存也不太显示，引入了 Term  Index
+    * Term Index 就像字典中的索引页，其中你的内容如字母 A开头的有哪些词条，这些词条分别在哪页，通过 Term Index，ES可以跨速定位到 Term Dictionary 的某个OffSet，然后从这个位置再往后顺序查找
+    * 在实际应用中，更常见的往往是多个词条拼成的“联合查询”，核心思想是利用 跳表快速做“与”运算，还有一种方式是利用“BitSet”位图，按位“与”运算
+    *  */
 
     /* 搜索 API
     * 使用 SearchAPI，执行一个搜索查询，并返回与查询匹配的搜索点击，用户可以使用简单的查询字符串作为参数或使用请求主体提供查询
@@ -447,4 +487,186 @@ public class EsSearch {
             // "nonAggregatableIndices is "+nonAggregatableIndices.length
         }
     }
+
+
+
+    /* 搜索结果的排序评估
+    * ES 提供了对搜索结果进行排序评估的接口，Ranking Evaluation API，ES提供了 rankeval 方法，对一组搜索请求的结果进行排序评估，以便衡量搜索结果的质量
+    * 首先为搜索请求提供一组手动评级的文档，随后评估批量搜索请求的质量，并计算搜索相关指标，如 返回结果的平均倒数排名、精度或折扣累计收益
+    * 需要构建排序评估请求，即 RankEvalRequest，在创建之前需要创建 RankEvalRequest的依赖对象 RankEvalSpec，RankEvalSpec用于描述评估规则，需要定义 RankEvalRequest的计算指标及每个搜索请求的分级文档列表
+    * 创建请求时，需要将目标索引名称和 RankEvalSpec 作为参数
+    * rate（比率，率），rated（额定，估价），metric（度量标准），Evaluation（评价，评估），Precision（精度），rating（评级，等级评定）
+    *  */
+    public RankEvalRequest buildRankEvalRequest(String index,String documentId,String field,String content){
+        EvaluationMetric metric = new PrecisionAtK();
+        List<RatedDocument> ratedDocs = new ArrayList<>();
+        //添加 按索引名称、ID和分级指定的分级文档
+        ratedDocs.add(new RatedDocument(index,documentId,1));
+        SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
+        //创建要评估的搜索查询
+        searchSourceBuilder.query(QueryBuilders.matchQuery(field,content));
+        //将前三部分合并为 RatedRequest
+        RatedRequest ratedRequest = new RatedRequest("content_query",ratedDocs,searchSourceBuilder);
+        List<RatedRequest> ratedRequests = Arrays.asList(ratedRequest);
+        //创建排序评估规范
+        RankEvalSpec specification = new RankEvalSpec(ratedRequests,metric);
+        //创建排序评估请求
+        RankEvalRequest request = new RankEvalRequest(specification,new String[]{index});
+        return request;
+    }
+    public String executeRankEvalRequest(String index,String documentId,String field,String content,EsUtil esUtil){
+        esUtil.initHEs();
+        RankEvalRequest request = buildRankEvalRequest(index,documentId,field,content);
+        try {
+            RankEvalResponse response = esUtil.restHighLevelClient.rankEval(request, RequestOptions.DEFAULT);
+            return processRankEvalResponse(response);
+        }catch (Exception e){
+            e.printStackTrace();
+            return "execute rankEval request  error :"+e.getMessage();
+        }
+        finally {
+            esUtil.closeHEs();
+        }
+    }
+    public String processRankEvalResponse(RankEvalResponse response){
+        String resultText = "";
+        //总体评价结果
+        double evaluationResult = response.getMetricScore();
+        resultText+="evaluationResult is "+evaluationResult;
+        Map<String,EvalQueryQuality> partialResults = response.getPartialResults();
+        //获取关键词 content_query 对应的评估结果
+        EvalQueryQuality evalQueryQuality = partialResults.get("content_query");
+        resultText+="; content_query id is "+evalQueryQuality.getId();
+        //每部分结果的度量分数
+        double qualityLevel = evalQueryQuality.metricScore();
+        resultText+="; qualityLevel is "+qualityLevel;
+        List<RatedSearchHit> hitsAndRatings = evalQueryQuality.getHitsAndRatings();
+        RatedSearchHit ratedSearchHit = hitsAndRatings.get(2);
+        //在分级搜索命中里包含完全成熟的搜索命中 SearchHit
+        resultText+="SearchHit id is "+ ratedSearchHit.getSearchHit().getId();
+        //分级搜索命中还包含一个可选的 <integer>分级 Optional<Integer>，如果文档在请求中未获得分级，则该分级不存在
+        resultText+="; rate's is Present is "+ratedSearchHit.getRating().isPresent();
+        MetricDetail metricDetails = evalQueryQuality.getMetricDetails();
+        String metricName = metricDetails.getMetricName();
+        //度量详细信息，以请求中使用的度量命名
+        resultText+="; metricName is "+metricName;
+        PrecisionAtK.Detail detail = (PrecisionAtK.Detail)metricDetails;
+        //在转换到请求中使用的度量之后，度量详细信息提供了对度量计算部分的深入了解
+        resultText+="; detail's relevantRetrieved is "+detail.getRelevantRetrieved();
+        resultText+="; detail's retrieved is "+detail.getRetrieved();
+        return resultText;
+    }
+
+
+
+
+    /* 搜索结果解释
+    * 解释API，ExplainAPI，用于为请求和相关的文档计算解释性的分数，无论文档是否匹配这个查询请求，ES都可以给用户提供一些有用的反馈
+    * 首先要构建 搜索结果解释请求，创建 ExplainRequest 对象，有两个必选参数 索引名称和文档，同时需要通过 QueryBuilder 来构建查询表达式
+    * */
+    private ExplainRequest buildExplainRequest(String indexName,String document,String field,String content){
+        ExplainRequest request = new ExplainRequest(indexName,document);
+        request.query(QueryBuilders.termQuery(field,content));
+        //设置路由
+        request.routing("routing");
+        //使用首选参数，例如执行搜索以首选本地碎片，默认值是在分片之间随机进行的
+        request.preference("_local");
+        //设置为 真，以检索解释的文档源，还可以通过使用“包含源代码”和“排除源代码”来检索部分文档
+        request.fetchSourceContext(new FetchSourceContext(true,new String[]{field},null));
+        //允许控制一部分的存储字段（要求在映射中单独存储该字段），并将其返回作为说明文档
+        request.storedFields(new String[]{field});
+        return request;
+    }
+    /* 执行搜索结果解释请求，会返回 ExplainResponse 响应
+    * ExplainResponse response = restClient.explain(request,RequestOption.DEFAULT);
+    * */
+    private void processExplainResponse(ExplainResponse response){
+        //解释文档的索引名称
+        String index = response.getIndex();
+        //解释文档的ID
+        String id = response.getId();
+        //查看解释的文档是否存在
+        boolean exists = response.isExists();
+        //解释的文档与提供的查询之间是否匹配（匹配是从后台的 Lucene解释中检索的，如果Lucene解释建模匹配，则返回 true，否则返回 false）
+        boolean match = response.isMatch();
+        //查看是否存在此请求的 Lucene解释
+        boolean hasExplanation = response.hasExplanation();
+        EsUtil.log.info("match is "+match+"; hasExplanation is "+hasExplanation);
+        //获取 Lucene 解释对象（如果存在）
+        Explanation explanation = response.getExplanation();
+        if(explanation!=null){
+            EsUtil.log.info("explanation is "+explanation.toString());
+        }
+        //如果检索到源或存储字段，则获取 getResult对象
+        GetResult getResult = response.getGetResult();
+        if(getResult==null)
+            return;
+        //getResult 内部包含两个映射，用于存储提取的元字段和存储的字段
+        //以 Map形式检索
+        Map<String,Object> source = getResult.getSource();
+        if(source==null)
+            return;
+        for(String str:source.keySet()){
+            EsUtil.log.info("str key is "+str);
+        }
+        //以映射形式检索指定的存储
+        Map<String, DocumentField> fields = getResult.getFields();
+        if(fields == null){
+            return;
+        }
+        for(String str:fields.keySet()){
+            EsUtil.log.info("field str key is "+str);
+        }
+    }
+
+
+
+    /* 统计
+    * 提供了 统计API，即 Count API，用于执行查询请求，并返回与请求匹配的统计结果
+    *  */
+    public CountRequest buildCountRequest(String index,String routeName,String field,String content){
+        //将请求限制为特定名称的索引，设置路由参数，设置 IndiceOptions（控制如何解析不可用索引及如何展开通配符表达式）
+        //使用首选参数，例如执行搜索以首选本地分片，默认值是在分片之间随机选择的
+        CountRequest request = new CountRequest(index).routing(routeName).indicesOptions(IndicesOptions.lenientExpandOpen()).preference("_local");
+        //使用默认选项创建 SearchSourceBuilder
+        SearchSourceBuilder searchSourceBuilder = new SearchSourceBuilder();
+        //设置查询可以是任意类型的 QueryBuilder
+        searchSourceBuilder.query(QueryBuilders.termQuery(field,content));
+        //将 SearchSourcebuilder 添加到 CountRequest中
+        request.source(searchSourceBuilder);
+        return request;
+    }
+    public void executeCountRequest(String index,String routeName,String field,String content,EsUtil esUtil){
+        CountRequest request = buildCountRequest(index,routeName,field,content);
+        try {
+            CountResponse response = esUtil.restHighLevelClient.count(request,RequestOptions.DEFAULT);
+            //统计请求对应的结果命中总数
+            long count = response.getCount();
+            // HTTP状态代码
+            RestStatus status = response.status();
+            // 请求是否提前终止
+            Boolean terminatedEarly = response.isTerminatedEarly();
+            EsUtil.log.info("count is "+count+"; status is "+status.getStatus()+"; terminatedEarly is "+terminatedEarly);
+            //与统计请求对应的分片总数
+            int totalShards = response.getTotalShards();
+            //执行统计请求跳过的分片数量
+            int skippedShards = response.getSkippedShards();
+            //执行统计请求成功的分片数量
+            int successfulShards = response.getSuccessfulShards();
+            //执行统计请求失败的分片数量
+            int failedShards = response.getFailedShards();
+            EsUtil.log.info("totalShards is "+totalShards+"; skippedShards is "+skippedShards+"; successfulShards is "+successfulShards+"; failedShards is "+failedShards);
+            //通过遍历 ShardSearchFailures 数组来处理可能的失败信息
+            if(response.getShardFailures()==null){
+                return;
+            }
+            for(ShardSearchFailure failure:response.getShardFailures()){
+                EsUtil.log.info("fail index is "+failure.index());
+            }
+
+        }catch (Exception e){
+            e.printStackTrace();
+        }
+    }
+
 }
