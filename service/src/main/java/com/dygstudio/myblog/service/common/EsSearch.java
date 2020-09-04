@@ -60,13 +60,15 @@ public class EsSearch {
     * 对未知文档的搜索：
     * 大部分请求实际上是不知道查询条件会命中那些文档，搜索请求的执行不得不去询问每个索引中的每个分片
     * ES搜索过程 分为 查询阶段(Query Phase)，获取阶段(Fetch  Phase)
-    * 在查询阶段，查询请求会广播到索引中的每个主分片和备份中，每个分片都会在本地执行检索，并在本地建立一个优先级队列（Priority Queue），该优先级队列是一份根据文档相关度质变进行排序的列表，长度由 from 和 size 两个分页参数决定
+    * 在查询阶段，查询请求会广播到索引中的每个主分片和备份中，每个分片都会在本地执行检索，并在本地建立一个优先级队列（Priority Queue），
+    * 该优先级队列是一份根据文档相关度质变进行排序的列表，长度由 from 和 size 两个分页参数决定
     * 查询阶段可以分为三个小的子阶段
     * 1.客户端你发送一个检索请求个某节点A，A会创建一个空的优先级队列，并跑【行知道分页参数 from 和size
     * 2.节点A 将搜索请求发送给该索引中的每一个分片，每个肥牛片在本地执行检索，并将结果添加到本地优先级队列中
     * 3.每个分片返回本地优先级序列中所记录的ID 与 sort 值，并发送给节点A，节点A将这些值合并到自己的本地优先级队列中，并作出全局的排序
     * 在获取阶段，主要是基于上一阶段找到所有搜索文档数据的具体文职，将文档数据内容取回并返回给客户端
-    * ES中 默认的搜索类型就是 Query then Fetch，有可能会出现打分偏离的情形，ES 还提供了一个 DFS Query then Fetch 的搜索方式，和 Query then Fetch 基本你想通，会执行一个预查询来计算你整体文档的 frequency
+    * ES中 默认的搜索类型就是 Query then Fetch，有可能会出现打分偏离的情形，
+    * ES 还提供了一个 DFS Query then Fetch 的搜索方式，和 Query then Fetch 基本你想通，会执行一个预查询来计算你整体文档的 frequency
     * 其过程：
     * 1.预查询每个分片，询问 Term 和 Document Frequency 等信息
     * 2.发送查询请求到每个分片
@@ -77,7 +79,8 @@ public class EsSearch {
     * 对词条的搜索
     * ES 分别为每个文档中的字段建立了一个倒排索引，ES为了能快速找到某个词条，对所有的词条机型了排序，随后使用二分法查找词条，排序词条的集合也称为 Term Dictionary
     * 为了能提高查询性能，ES直接通过内存查找词条，非从磁盘中读取，但当词条太多时，放在内存也不太显示，引入了 Term  Index
-    * Term Index 就像字典中的索引页，其中你的内容如字母 A开头的有哪些词条，这些词条分别在哪页，通过 Term Index，ES可以跨速定位到 Term Dictionary 的某个OffSet，然后从这个位置再往后顺序查找
+    * Term Index 就像字典中的索引页，其中你的内容如字母 A开头的有哪些词条，这些词条分别在哪页，通过 Term Index，
+    * ES可以跨速定位到 Term Dictionary 的某个OffSet，然后从这个位置再往后顺序查找
     * 在实际应用中，更常见的往往是多个词条拼成的“联合查询”，核心思想是利用 跳表快速做“与”运算，还有一种方式是利用“BitSet”位图，按位“与”运算
     *  */
 
@@ -337,7 +340,8 @@ public class EsSearch {
         try {
             SearchResponse response = esUtil.restHighLevelClient.search(request,RequestOptions.DEFAULT);
             //返回的滚动 ID，该ID指向保持活动状态的搜索上下文，并在后续的搜索滚动中需要使用
-            //测试后返回 ScrollID：DnF1ZXJ5VGhlbkZldGNoAwAAAAAAAAEiFnNtcjRjRjJsVHV1eDRoWWw4ZWlaQUEAAAAAAAABIxZzbXI0Y0YybFR1dXg0aFlsOGVpWkFBAAAAAAAAAKEWTDBRRnNGb0lTY2VCMDQ0WHJ0aUJxQQ==
+            //测试后返回 ScrollID：DnF1ZXJ5VGhlbkZldGNoAwAAAAAAAAEiFnNtcjRjRjJsVHV1eDRoWWw4ZWlaQUEAAAAAAAABIxZzbXI0Y0YybFR1dXg0aFlsOGVpWk
+            // FBAAAAAAAAAKEWTDBRRnNGb0lTY2VCMDQ0WHJ0aUJxQQ==
             String scrollId = response.getScrollId();
             //第一次滚动获取的结果
             SearchHits hits = response.getHits();
@@ -493,7 +497,8 @@ public class EsSearch {
     /* 搜索结果的排序评估
     * ES 提供了对搜索结果进行排序评估的接口，Ranking Evaluation API，ES提供了 rankeval 方法，对一组搜索请求的结果进行排序评估，以便衡量搜索结果的质量
     * 首先为搜索请求提供一组手动评级的文档，随后评估批量搜索请求的质量，并计算搜索相关指标，如 返回结果的平均倒数排名、精度或折扣累计收益
-    * 需要构建排序评估请求，即 RankEvalRequest，在创建之前需要创建 RankEvalRequest的依赖对象 RankEvalSpec，RankEvalSpec用于描述评估规则，需要定义 RankEvalRequest的计算指标及每个搜索请求的分级文档列表
+    * 需要构建排序评估请求，即 RankEvalRequest，在创建之前需要创建 RankEvalRequest的依赖对象 RankEvalSpec，
+    * RankEvalSpec用于描述评估规则，需要定义 RankEvalRequest的计算指标及每个搜索请求的分级文档列表
     * 创建请求时，需要将目标索引名称和 RankEvalSpec 作为参数
     * rate（比率，率），rated（额定，估价），metric（度量标准），Evaluation（评价，评估），Precision（精度），rating（评级，等级评定）
     *  */
