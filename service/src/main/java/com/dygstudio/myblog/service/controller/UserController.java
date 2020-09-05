@@ -18,7 +18,7 @@ import java.util.List;
  * @date: 2020/9/4 5:11 下午
  */
 @RestController
-@RequestMapping("/api/user")
+@RequestMapping("/user")
 public class UserController {
 
     @Resource

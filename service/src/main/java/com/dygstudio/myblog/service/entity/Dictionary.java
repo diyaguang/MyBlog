@@ -1,9 +1,11 @@
 package com.dygstudio.myblog.service.entity;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 
 import java.io.Serializable;
+import java.util.List;
 
 /**
  * 〈功能概述〉
@@ -20,6 +22,12 @@ public class Dictionary implements Serializable {
     private String name;
     private String code;
     private Integer sort;
+    private String pid;
+    private Integer Status;
+    private Integer IsDel;
+
+    @TableField(exist = false)
+    private List<Dictionary> childs;
 
     public String getId() {
         return id;
@@ -27,6 +35,14 @@ public class Dictionary implements Serializable {
 
     public void setId(String id) {
         this.id = id;
+    }
+
+    public String getPid() {
+        return pid;
+    }
+
+    public void setPid(String pid) {
+        this.pid = pid;
     }
 
     public String getName() {
@@ -51,5 +67,29 @@ public class Dictionary implements Serializable {
 
     public void setSort(Integer sort) {
         this.sort = sort;
+    }
+
+    public List<Dictionary> getChilds() {
+        return childs;
+    }
+
+    public void setChilds(List<Dictionary> childs) {
+        this.childs = childs;
+    }
+
+    public Integer getStatus() {
+        return Status;
+    }
+
+    public void setStatus(Integer status) {
+        Status = status;
+    }
+
+    public Integer getIsDel() {
+        return IsDel;
+    }
+
+    public void setIsDel(Integer isDel) {
+        IsDel = isDel;
     }
 }

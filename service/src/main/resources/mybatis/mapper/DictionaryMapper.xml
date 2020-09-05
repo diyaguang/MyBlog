@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper  PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"  "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.dygstudio.myblog.service.mapper.DictionaryMapper">
+    <select id="getAllDictionary"  resultType="ObjectAndChildMap">
+        select * from Dictionary p
+    </select>
+    <select id="getByTopDictionary"  resultType="ObjectAndChildMap">
+        select * from Dictionary p where p.pid is null
+    </select>
+    <select id="getDictionaryById" resultMap="ObjectAndChildMap">
+        select * from Dictionary p where p.id=#{value}
+    </select>
+    <select id="getDictionaryByValue" resultMap="ObjectAndChildMap" parameterType="String">
+        select * from Dictionary p where p.value=#{value}
+    </select>
+    <select id="getDictionaryByPId" resultMap="ObjectAndChildMap" parameterType="String">
+        select * from Dictionary p where p.pid=#{value}
+    </select>
+
+    <resultMap id="ObjectAndChildMap" type="Dictionary">
+        <id property="id" column="id"/>
+        <result property="name" column="name"/>
+        <result property="code" column="code"/>
+        <result property="sort" column="sort"/>
+        <result property="pid" column="pid"/>
+        <result property="Status" column="Status"/>
+        <result property="IsDel" column="IsDel"/>
+        <collection property="childs" ofType="Dictionary" column="id"
+                    select="com.dygstudio.myblog.service.mapper.DictionaryMapper.getDictionaryByPId"/>
+    </resultMap>
+</mapper>
